@@ -10,7 +10,7 @@ export default function AuthLayout({
           Revenue Reconciliation
         </p>
         <p className="mt-2 text-sm text-muted-foreground">
-          Public authentication shell (scaffolding — auth wiring comes in Stage 2)
+          Sign in to import data and reconcile revenue.
         </p>
       </div>
       {children}

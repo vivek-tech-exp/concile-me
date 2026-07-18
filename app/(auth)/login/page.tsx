@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AuthFeedback } from "@/components/auth-feedback";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,17 +13,27 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default function LoginPage() {
+type LoginPageProps = {
+  searchParams: Promise<{
+    error?: string | string[];
+    message?: string | string[];
+  }>;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = await searchParams;
+
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle>Log in</CardTitle>
         <CardDescription>
-          Scaffolding only. Sign-in is not connected yet.
+          Use the email and password for your account.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <form className="grid gap-4" noValidate>
+      <CardContent className="grid gap-4">
+        <AuthFeedback error={params.error} message={params.message} />
+        <form action="/auth/login" method="post" className="grid gap-4">
           <div className="grid gap-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -31,7 +42,7 @@ export default function LoginPage() {
               type="email"
               autoComplete="email"
               placeholder="you@example.com"
-              disabled
+              required
             />
           </div>
           <div className="grid gap-2">
@@ -41,17 +52,20 @@ export default function LoginPage() {
               name="password"
               type="password"
               autoComplete="current-password"
-              disabled
+              required
             />
           </div>
-          <Button type="button" disabled className="w-full">
+          <Button type="submit" className="w-full">
             Log in
           </Button>
         </form>
       </CardContent>
       <CardFooter className="justify-center text-sm text-muted-foreground">
         Need an account?{" "}
-        <Link href="/signup" className="ml-1 text-foreground underline-offset-4 hover:underline">
+        <Link
+          href="/signup"
+          className="ml-1 text-foreground underline-offset-4 hover:underline"
+        >
           Sign up
         </Link>
       </CardFooter>
