@@ -28,18 +28,20 @@ Optional later:
 | --- | --- |
 | `OPENAI_API_KEY` | Server-side LLM explanations (Stage 8+) |
 
-### Supabase Auth configuration
+### Supabase Auth configuration (demo)
+
+Use one Supabase project for both localhost and production:
 
 1. Enable the Email provider in Authentication → Providers.
-2. Add `http://localhost:3000/**` under Authentication → URL Configuration → Redirect URLs.
-3. Set Site URL to `http://localhost:3000` for local development.
-4. If email confirmation is enabled, set the Confirm signup template link to:
+2. **Turn off “Confirm email”** (Providers → Email). Signup then returns a session immediately on localhost and production — same behavior.
+3. Authentication → URL Configuration:
+   - **Site URL:** `https://concile-me.vercel.app`
+   - **Redirect URLs** (add both):
+     - `http://localhost:3000/**`
+     - `https://concile-me.vercel.app/**`
+4. Password rules stay on the Supabase project policy; the app does not invent a second policy.
 
-```text
-{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email
-```
-
-5. Password rules are enforced by the Supabase project policy; the app does not invent a second policy.
+Local and prod share the same Supabase URL and publishable key (already in `.env.local` and Vercel).
 
 ## Scripts
 
