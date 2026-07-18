@@ -15,7 +15,7 @@ SELECT tests.create_user(
 -- User A creates owned data
 SELECT tests.authenticate_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 SELECT public.create_import_batch(
-  'iso-a',
+  '20000000-0000-4000-8000-000000000001',
   'orders.csv',
   'payments.csv',
   jsonb_build_array(tests.sample_order(2)),
@@ -31,7 +31,7 @@ SELECT public.create_import_batch(
 );
 SELECT set_config(
   'tests.a_batch',
-  (SELECT id::text FROM public.import_batches WHERE idempotency_key = 'iso-a'),
+  (SELECT id::text FROM public.import_batches WHERE idempotency_key = '20000000-0000-4000-8000-000000000001'),
   true
 );
 SELECT set_config(
@@ -207,7 +207,7 @@ SELECT throws_ok(
 
 -- User B valid operations only affect B
 SELECT public.create_import_batch(
-  'iso-b',
+  '20000000-0000-4000-8000-000000000002',
   'orders.csv',
   'payments.csv',
   jsonb_build_array(tests.sample_order(2)),
@@ -216,7 +216,7 @@ SELECT public.create_import_batch(
 );
 
 SELECT is(
-  (SELECT COUNT(*)::integer FROM public.import_batches WHERE idempotency_key = 'iso-b'),
+  (SELECT COUNT(*)::integer FROM public.import_batches WHERE idempotency_key = '20000000-0000-4000-8000-000000000002'),
   1,
   'User B valid import affects only User B'
 );

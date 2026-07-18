@@ -170,6 +170,7 @@ Client Component (upload only):
 - Client size hints (usability only); submit disabled until both files selected
 - Importing state; success summary; warning details; blocking error summary
 - Retry for network/persistence failures; new idempotency key after success; preserve key on retry
+- Rotate the idempotency key when either file changes after an attempt so a lost success response cannot attach new files to the prior batch
 
 Server Component:
 

@@ -17,6 +17,7 @@ import { SupabaseConfigError } from "@/lib/validation/env";
 function formRequest(
   path: string,
   fields: Record<string, string>,
+  headers?: HeadersInit,
 ): Request {
   const body = new FormData();
   for (const [key, value] of Object.entries(fields)) {
@@ -25,6 +26,10 @@ function formRequest(
   return new Request(`http://localhost${path}`, {
     method: "POST",
     body,
+    headers: {
+      Origin: "http://localhost",
+      ...headers,
+    },
   });
 }
 
@@ -198,11 +203,98 @@ describe("auth route handlers", () => {
     });
 
     const response = await logoutPost(
-      new Request("http://localhost/auth/logout", { method: "POST" }) as never,
+      new Request("http://localhost/auth/logout", {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+      }) as never,
     );
 
     expect(signOut).toHaveBeenCalled();
     expect(response.headers.get("location")).toBe("http://localhost/login");
+  });
+
+  it("rejects cross-origin login without calling Supabase", async () => {
+    const signInWithPassword = vi.fn();
+    createClientMock.mockResolvedValue({
+      auth: { signInWithPassword },
+    });
+
+    const response = await loginPost(
+      formRequest(
+        "/auth/login",
+        { email: "user@example.com", password: "password123" },
+        { Origin: "https://evil.example" },
+      ) as never,
+    );
+
+    expect(createClientMock).not.toHaveBeenCalled();
+    expect(signInWithPassword).not.toHaveBeenCalled();
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "http://localhost/login?error=csrf",
+    );
+  });
+
+  it("rejects cross-origin signup without calling Supabase", async () => {
+    const signUp = vi.fn();
+    createClientMock.mockResolvedValue({
+      auth: { signUp },
+    });
+
+    const response = await signupPost(
+      formRequest(
+        "/auth/signup",
+        { email: "user@example.com", password: "password123" },
+        { Origin: "https://evil.example" },
+      ) as never,
+    );
+
+    expect(createClientMock).not.toHaveBeenCalled();
+    expect(signUp).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe(
+      "http://localhost/signup?error=csrf",
+    );
+  });
+
+  it("rejects cross-origin logout without signing out", async () => {
+    const signOut = vi.fn();
+    createClientMock.mockResolvedValue({
+      auth: { signOut },
+    });
+
+    const response = await logoutPost(
+      new Request("http://localhost/auth/logout", {
+        method: "POST",
+        headers: { Origin: "https://evil.example" },
+      }) as never,
+    );
+
+    expect(createClientMock).not.toHaveBeenCalled();
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe(
+      "http://localhost/login?error=csrf",
+    );
+  });
+
+  it("accepts login with same-origin Referer when Origin is absent", async () => {
+    createClientMock.mockResolvedValue({
+      auth: {
+        signInWithPassword: vi.fn().mockResolvedValue({ error: null }),
+      },
+    });
+
+    const body = new FormData();
+    body.set("email", "user@example.com");
+    body.set("password", "password123");
+    const response = await loginPost(
+      new Request("http://localhost/auth/login", {
+        method: "POST",
+        body,
+        headers: { Referer: "http://localhost/login" },
+      }) as never,
+    );
+
+    expect(response.headers.get("location")).toBe("http://localhost/app");
   });
 
   it("surfaces a config error without exposing env values", async () => {

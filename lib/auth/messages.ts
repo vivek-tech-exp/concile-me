@@ -7,6 +7,7 @@ export const AUTH_ERROR_CODES = [
   "account_exists",
   "email_not_confirmed",
   "weak_password",
+  "csrf",
 ] as const;
 
 export const AUTH_MESSAGE_CODES = ["check_email"] as const;
@@ -28,6 +29,7 @@ const ERROR_MESSAGES: Record<AuthErrorCode, string> = {
     "Confirm your email before logging in. Check your inbox for the link.",
   weak_password:
     "Choose a stronger password that meets the security requirements.",
+  csrf: "This request could not be verified. Try again from this site.",
 };
 
 const SUCCESS_MESSAGES: Record<AuthMessageCode, string> = {
