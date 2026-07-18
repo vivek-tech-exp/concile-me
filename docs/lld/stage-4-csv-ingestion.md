@@ -225,11 +225,23 @@ Manual hosted upload acceptance (temporary account; delete after)
 
 ## Acceptance checklist
 
-- [ ] Schema preserves complete validated source records; no migration files
-- [ ] Exact money/date/normalize parsers covered by unit tests
-- [ ] Paired CSV validation covers headers, swap, limits, BOM, malformed quotes
-- [ ] `POST /api/imports` authenticates first; blocks invalid payloads without RPC
-- [ ] Reference pair: 185 / 187 / 5 warnings / 0 blocking
-- [ ] Idempotent retry does not duplicate; second user cannot see import
-- [ ] UI shows success, warnings, errors, retry, and owned history
-- [ ] Stage 4 marked COMPLETE only after checks pass
+- [x] Schema preserves complete validated source records; no migration files
+- [x] Exact money/date/normalize parsers covered by unit tests
+- [x] Paired CSV validation covers headers, swap, limits, BOM, malformed quotes
+- [x] `POST /api/imports` authenticates first; blocks invalid payloads without RPC
+- [x] Reference pair: 185 / 187 / 5 warnings / 0 blocking
+- [x] Idempotent retry does not duplicate; second user cannot see import (pgTAP)
+- [x] UI shows success, warnings, errors, retry, and owned history
+- [x] Stage 4 marked COMPLETE only after checks pass
+
+### Hosted acceptance (manual)
+
+Use a temporary authenticated account on the shared hosted project only after the pending Stage 4 `ALTER` statements in `supabase/hosted_stage4_alter.sql.pending` are explicitly approved and applied (never reset/drop the linked DB):
+
+1. Upload `sample/orders.csv` + `sample/payments.csv`
+2. Confirm one completed batch with 185 / 187 / 5 warnings
+3. Confirm warnings visible in success UI and history
+4. Confirm retry with the same idempotency key does not duplicate
+5. Confirm invalid/swapped pair creates no batch
+6. Confirm a second user cannot see the import
+7. Delete temporary test data after verification
