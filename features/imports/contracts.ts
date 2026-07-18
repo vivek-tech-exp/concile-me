@@ -39,26 +39,59 @@ export type OrderHeader = (typeof ORDER_HEADERS)[number];
 export type PaymentHeader = (typeof PAYMENT_HEADERS)[number];
 export type CsvSource = "orders" | "payments";
 
-export type ImportIssue = {
-  source: CsvSource | "request";
-  row?: number;
-  field?: string;
-  code: string;
-  message: string;
-};
+export const csvSourceSchema = z.enum(["orders", "payments"]);
 
-export type ImportWarning = {
-  code: string;
-  severity: "low";
-  message: string;
-  sort_key: string;
-  currency?: string;
-  financial_impact_minor?: number;
-  order_record_source_rows?: number[];
-  payment_record_source_rows?: number[];
-  source: CsvSource;
-  source_row_number: number;
-};
+export const importIssueSchema = z.object({
+  source: z.union([csvSourceSchema, z.literal("request")]),
+  row: z.number().int().positive().optional(),
+  field: z.string().min(1).optional(),
+  code: z.string().min(1),
+  message: z.string().min(1),
+});
+
+export const importWarningSchema = z.object({
+  code: z.string().min(1),
+  severity: z.literal("low"),
+  message: z.string().min(1),
+  sort_key: z.string().min(1),
+  currency: z.string().min(1).optional(),
+  financial_impact_minor: z.number().int().optional(),
+  order_record_source_rows: z.array(z.number().int().positive()).optional(),
+  payment_record_source_rows: z.array(z.number().int().positive()).optional(),
+  source: csvSourceSchema,
+  source_row_number: z.number().int().nonnegative(),
+});
+
+export const importSuccessResponseSchema = z.object({
+  ok: z.literal(true),
+  batchId: z.uuid(),
+  orderCount: z.number().int().nonnegative(),
+  paymentCount: z.number().int().nonnegative(),
+  warningCount: z.number().int().nonnegative(),
+  warnings: z.array(importWarningSchema),
+});
+
+export const importErrorResponseSchema = z.object({
+  ok: z.literal(false),
+  error: z.object({
+    code: z.string().min(1),
+    message: z.string().min(1),
+    issues: z.array(importIssueSchema).optional(),
+    totalIssueCount: z.number().int().nonnegative().optional(),
+    retryable: z.boolean(),
+  }),
+});
+
+export const importResponseSchema = z.discriminatedUnion("ok", [
+  importSuccessResponseSchema,
+  importErrorResponseSchema,
+]);
+
+export type ImportIssue = z.infer<typeof importIssueSchema>;
+export type ImportWarning = z.infer<typeof importWarningSchema>;
+export type ImportSuccessResponse = z.infer<typeof importSuccessResponseSchema>;
+export type ImportErrorResponse = z.infer<typeof importErrorResponseSchema>;
+export type ImportResponse = z.infer<typeof importResponseSchema>;
 
 export type OrderRecordPayload = {
   source_row_number: number;
@@ -100,29 +133,6 @@ export type PaymentRecordPayload = {
   original_transaction_date: string;
   processed_at: string | null;
 };
-
-export type ImportSuccessResponse = {
-  ok: true;
-  batchId: string;
-  orderCount: number;
-  paymentCount: number;
-  /** Persisted total; may exceed `warnings.length` when details are capped. */
-  warningCount: number;
-  warnings: ImportWarning[];
-};
-
-export type ImportErrorResponse = {
-  ok: false;
-  error: {
-    code: string;
-    message: string;
-    issues?: ImportIssue[];
-    totalIssueCount?: number;
-    retryable: boolean;
-  };
-};
-
-export type ImportResponse = ImportSuccessResponse | ImportErrorResponse;
 
 export const idempotencyKeySchema = z.uuid();
 

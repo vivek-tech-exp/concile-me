@@ -15,8 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   MAX_FILE_BYTES,
+  importResponseSchema,
   type ImportIssue,
-  type ImportResponse,
   type ImportWarning,
 } from "@/features/imports/contracts";
 import {
@@ -94,8 +94,28 @@ export function ImportForm() {
           method: "POST",
           body,
         });
-        const payload = (await response.json()) as ImportResponse;
 
+        let raw: unknown;
+        try {
+          raw = await response.json();
+        } catch {
+          setError({
+            message: "Import response was invalid. Please retry.",
+            retryable: true,
+          });
+          return;
+        }
+
+        const parsed = importResponseSchema.safeParse(raw);
+        if (!parsed.success) {
+          setError({
+            message: "Import response was invalid. Please retry.",
+            retryable: true,
+          });
+          return;
+        }
+
+        const payload = parsed.data;
         if (!payload.ok) {
           setError({
             message: payload.error.message,
