@@ -861,3 +861,65 @@ $$;
 REVOKE ALL ON FUNCTION public.replace_current_reconciliation(uuid, integer, integer, jsonb, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.replace_current_reconciliation(uuid, integer, integer, jsonb, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.replace_current_reconciliation(uuid, integer, integer, jsonb, jsonb) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Owner-only RLS policies and SELECT grants
+-- Direct INSERT/UPDATE/DELETE remain revoked; writes go through RPCs.
+-- ---------------------------------------------------------------------------
+
+GRANT SELECT ON TABLE public.import_batches TO authenticated;
+GRANT SELECT ON TABLE public.order_records TO authenticated;
+GRANT SELECT ON TABLE public.payment_records TO authenticated;
+GRANT SELECT ON TABLE public.reconciliations TO authenticated;
+GRANT SELECT ON TABLE public.reconciliation_currency_metrics TO authenticated;
+GRANT SELECT ON TABLE public.findings TO authenticated;
+GRANT SELECT ON TABLE public.finding_order_records TO authenticated;
+GRANT SELECT ON TABLE public.finding_payment_records TO authenticated;
+
+CREATE POLICY import_batches_select_own
+  ON public.import_batches
+  FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+CREATE POLICY order_records_select_own
+  ON public.order_records
+  FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+CREATE POLICY payment_records_select_own
+  ON public.payment_records
+  FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+CREATE POLICY reconciliations_select_own
+  ON public.reconciliations
+  FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+CREATE POLICY reconciliation_currency_metrics_select_own
+  ON public.reconciliation_currency_metrics
+  FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+CREATE POLICY findings_select_own
+  ON public.findings
+  FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+CREATE POLICY finding_order_records_select_own
+  ON public.finding_order_records
+  FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+CREATE POLICY finding_payment_records_select_own
+  ON public.finding_payment_records
+  FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
