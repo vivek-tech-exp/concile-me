@@ -654,7 +654,7 @@ function readRawHeaderFields(text: string): string[] | undefined {
   if (!row) {
     return undefined;
   }
-  return row.map((field) => field);
+  return row;
 }
 
 function parseCsvFile(
