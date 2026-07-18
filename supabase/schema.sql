@@ -385,3 +385,277 @@ ALTER TABLE public.finding_payment_records FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.finding_payment_records FROM PUBLIC;
 REVOKE ALL ON TABLE public.finding_payment_records FROM anon;
 REVOKE ALL ON TABLE public.finding_payment_records FROM authenticated;
+
+-- ---------------------------------------------------------------------------
+-- create_import_batch — atomic import persistence
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.create_import_batch(
+  p_idempotency_key text,
+  p_orders_filename text,
+  p_payments_filename text,
+  p_orders jsonb,
+  p_payments jsonb,
+  p_warnings jsonb DEFAULT '[]'::jsonb
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_batch_id uuid;
+  v_existing_id uuid;
+  v_order jsonb;
+  v_payment jsonb;
+  v_warning jsonb;
+  v_finding_id uuid;
+  v_order_id uuid;
+  v_payment_id uuid;
+  v_row_number integer;
+  v_order_ids_by_row jsonb := '{}'::jsonb;
+  v_payment_ids_by_row jsonb := '{}'::jsonb;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_idempotency_key IS NULL OR length(trim(p_idempotency_key)) = 0 THEN
+    RAISE EXCEPTION 'idempotency_key is required';
+  END IF;
+
+  IF p_orders_filename IS NULL OR length(trim(p_orders_filename)) = 0 THEN
+    RAISE EXCEPTION 'orders_filename is required';
+  END IF;
+
+  IF p_payments_filename IS NULL OR length(trim(p_payments_filename)) = 0 THEN
+    RAISE EXCEPTION 'payments_filename is required';
+  END IF;
+
+  IF p_orders IS NULL OR jsonb_typeof(p_orders) <> 'array' THEN
+    RAISE EXCEPTION 'orders must be a JSON array';
+  END IF;
+
+  IF p_payments IS NULL OR jsonb_typeof(p_payments) <> 'array' THEN
+    RAISE EXCEPTION 'payments must be a JSON array';
+  END IF;
+
+  IF p_warnings IS NULL OR jsonb_typeof(p_warnings) <> 'array' THEN
+    RAISE EXCEPTION 'warnings must be a JSON array';
+  END IF;
+
+  SELECT ib.id
+  INTO v_existing_id
+  FROM public.import_batches AS ib
+  WHERE ib.user_id = v_user_id
+    AND ib.idempotency_key = p_idempotency_key
+    AND ib.status = 'completed';
+
+  IF v_existing_id IS NOT NULL THEN
+    RETURN v_existing_id;
+  END IF;
+
+  INSERT INTO public.import_batches (
+    user_id,
+    status,
+    orders_filename,
+    payments_filename,
+    idempotency_key
+  )
+  VALUES (
+    v_user_id,
+    'processing',
+    p_orders_filename,
+    p_payments_filename,
+    p_idempotency_key
+  )
+  RETURNING id INTO v_batch_id;
+
+  FOR v_order IN
+    SELECT value
+    FROM jsonb_array_elements(p_orders)
+  LOOP
+    INSERT INTO public.order_records (
+      user_id,
+      import_batch_id,
+      source_row_number,
+      original_order_id,
+      normalized_order_id,
+      original_status,
+      normalized_status,
+      original_currency,
+      normalized_currency,
+      original_amount,
+      amount_minor,
+      original_order_date,
+      order_date
+    )
+    VALUES (
+      v_user_id,
+      v_batch_id,
+      (v_order ->> 'source_row_number')::integer,
+      v_order ->> 'original_order_id',
+      v_order ->> 'normalized_order_id',
+      v_order ->> 'original_status',
+      v_order ->> 'normalized_status',
+      v_order ->> 'original_currency',
+      v_order ->> 'normalized_currency',
+      v_order ->> 'original_amount',
+      (v_order ->> 'amount_minor')::bigint,
+      v_order ->> 'original_order_date',
+      NULLIF(v_order ->> 'order_date', '')::date
+    )
+    RETURNING id, source_row_number INTO v_order_id, v_row_number;
+
+    v_order_ids_by_row := v_order_ids_by_row || jsonb_build_object(v_row_number::text, v_order_id);
+  END LOOP;
+
+  FOR v_payment IN
+    SELECT value
+    FROM jsonb_array_elements(p_payments)
+  LOOP
+    INSERT INTO public.payment_records (
+      user_id,
+      import_batch_id,
+      source_row_number,
+      original_payment_id,
+      normalized_payment_id,
+      original_order_reference,
+      normalized_order_reference,
+      original_type,
+      normalized_type,
+      original_status,
+      normalized_status,
+      original_currency,
+      normalized_currency,
+      original_amount,
+      amount_minor,
+      original_transaction_date,
+      transaction_date
+    )
+    VALUES (
+      v_user_id,
+      v_batch_id,
+      (v_payment ->> 'source_row_number')::integer,
+      v_payment ->> 'original_payment_id',
+      v_payment ->> 'normalized_payment_id',
+      v_payment ->> 'original_order_reference',
+      v_payment ->> 'normalized_order_reference',
+      v_payment ->> 'original_type',
+      v_payment ->> 'normalized_type',
+      v_payment ->> 'original_status',
+      v_payment ->> 'normalized_status',
+      v_payment ->> 'original_currency',
+      v_payment ->> 'normalized_currency',
+      v_payment ->> 'original_amount',
+      (v_payment ->> 'amount_minor')::bigint,
+      v_payment ->> 'original_transaction_date',
+      NULLIF(v_payment ->> 'transaction_date', '')::date
+    )
+    RETURNING id, source_row_number INTO v_payment_id, v_row_number;
+
+    v_payment_ids_by_row :=
+      v_payment_ids_by_row || jsonb_build_object(v_row_number::text, v_payment_id);
+  END LOOP;
+
+  FOR v_warning IN
+    SELECT value
+    FROM jsonb_array_elements(p_warnings)
+  LOOP
+    INSERT INTO public.findings (
+      user_id,
+      import_batch_id,
+      reconciliation_id,
+      category,
+      code,
+      severity,
+      message,
+      currency,
+      financial_impact_minor,
+      sort_key
+    )
+    VALUES (
+      v_user_id,
+      v_batch_id,
+      NULL,
+      'data_quality',
+      v_warning ->> 'code',
+      v_warning ->> 'severity',
+      v_warning ->> 'message',
+      NULLIF(v_warning ->> 'currency', ''),
+      NULLIF(v_warning ->> 'financial_impact_minor', '')::bigint,
+      v_warning ->> 'sort_key'
+    )
+    RETURNING id INTO v_finding_id;
+
+    IF v_warning ? 'order_record_source_rows'
+      AND jsonb_typeof(v_warning -> 'order_record_source_rows') = 'array'
+    THEN
+      FOR v_row_number IN
+        SELECT (value #>> '{}')::integer
+        FROM jsonb_array_elements(v_warning -> 'order_record_source_rows')
+      LOOP
+        v_order_id := (v_order_ids_by_row ->> v_row_number::text)::uuid;
+        IF v_order_id IS NULL THEN
+          RAISE EXCEPTION 'Warning references unknown order source_row_number %', v_row_number;
+        END IF;
+
+        INSERT INTO public.finding_order_records (
+          finding_id,
+          order_record_id,
+          user_id,
+          import_batch_id
+        )
+        VALUES (
+          v_finding_id,
+          v_order_id,
+          v_user_id,
+          v_batch_id
+        );
+      END LOOP;
+    END IF;
+
+    IF v_warning ? 'payment_record_source_rows'
+      AND jsonb_typeof(v_warning -> 'payment_record_source_rows') = 'array'
+    THEN
+      FOR v_row_number IN
+        SELECT (value #>> '{}')::integer
+        FROM jsonb_array_elements(v_warning -> 'payment_record_source_rows')
+      LOOP
+        v_payment_id := (v_payment_ids_by_row ->> v_row_number::text)::uuid;
+        IF v_payment_id IS NULL THEN
+          RAISE EXCEPTION 'Warning references unknown payment source_row_number %', v_row_number;
+        END IF;
+
+        INSERT INTO public.finding_payment_records (
+          finding_id,
+          payment_record_id,
+          user_id,
+          import_batch_id
+        )
+        VALUES (
+          v_finding_id,
+          v_payment_id,
+          v_user_id,
+          v_batch_id
+        );
+      END LOOP;
+    END IF;
+  END LOOP;
+
+  UPDATE public.import_batches AS ib
+  SET
+    status = 'completed',
+    updated_at = now()
+  WHERE ib.id = v_batch_id
+    AND ib.user_id = v_user_id;
+
+  RETURN v_batch_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.create_import_batch(text, text, text, jsonb, jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.create_import_batch(text, text, text, jsonb, jsonb, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION public.create_import_batch(text, text, text, jsonb, jsonb, jsonb) TO authenticated;
