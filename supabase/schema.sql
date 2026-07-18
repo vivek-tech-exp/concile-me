@@ -659,3 +659,205 @@ $$;
 REVOKE ALL ON FUNCTION public.create_import_batch(text, text, text, jsonb, jsonb, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.create_import_batch(text, text, text, jsonb, jsonb, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.create_import_batch(text, text, text, jsonb, jsonb, jsonb) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- replace_current_reconciliation — atomic current-result replacement
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.replace_current_reconciliation(
+  p_import_batch_id uuid,
+  p_total_orders integer,
+  p_total_payments integer,
+  p_currency_metrics jsonb,
+  p_findings jsonb
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_import public.import_batches%ROWTYPE;
+  v_reconciliation_id uuid;
+  v_metric jsonb;
+  v_finding jsonb;
+  v_finding_id uuid;
+  v_order_id uuid;
+  v_payment_id uuid;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_currency_metrics IS NULL OR jsonb_typeof(p_currency_metrics) <> 'array' THEN
+    RAISE EXCEPTION 'currency_metrics must be a JSON array';
+  END IF;
+
+  IF p_findings IS NULL OR jsonb_typeof(p_findings) <> 'array' THEN
+    RAISE EXCEPTION 'findings must be a JSON array';
+  END IF;
+
+  SELECT *
+  INTO v_import
+  FROM public.import_batches AS ib
+  WHERE ib.id = p_import_batch_id
+    AND ib.user_id = v_user_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Import not found'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_import.status <> 'completed' THEN
+    RAISE EXCEPTION 'Import is not completed';
+  END IF;
+
+  -- Deletes current reconciliation and cascaded business findings/metrics/lineage.
+  -- Import-time warnings (reconciliation_id IS NULL) are preserved.
+  DELETE FROM public.reconciliations AS r
+  WHERE r.import_batch_id = p_import_batch_id
+    AND r.user_id = v_user_id;
+
+  INSERT INTO public.reconciliations (
+    user_id,
+    import_batch_id,
+    total_orders,
+    total_payments
+  )
+  VALUES (
+    v_user_id,
+    p_import_batch_id,
+    p_total_orders,
+    p_total_payments
+  )
+  RETURNING id INTO v_reconciliation_id;
+
+  FOR v_metric IN
+    SELECT value
+    FROM jsonb_array_elements(p_currency_metrics)
+  LOOP
+    INSERT INTO public.reconciliation_currency_metrics (
+      user_id,
+      import_batch_id,
+      reconciliation_id,
+      currency,
+      reconciled_value_minor,
+      disputed_value_minor,
+      money_at_risk_minor
+    )
+    VALUES (
+      v_user_id,
+      p_import_batch_id,
+      v_reconciliation_id,
+      v_metric ->> 'currency',
+      (v_metric ->> 'reconciled_value_minor')::bigint,
+      (v_metric ->> 'disputed_value_minor')::bigint,
+      (v_metric ->> 'money_at_risk_minor')::bigint
+    );
+  END LOOP;
+
+  FOR v_finding IN
+    SELECT value
+    FROM jsonb_array_elements(p_findings)
+  LOOP
+    INSERT INTO public.findings (
+      user_id,
+      import_batch_id,
+      reconciliation_id,
+      category,
+      code,
+      severity,
+      message,
+      currency,
+      financial_impact_minor,
+      sort_key
+    )
+    VALUES (
+      v_user_id,
+      p_import_batch_id,
+      v_reconciliation_id,
+      'business',
+      v_finding ->> 'code',
+      v_finding ->> 'severity',
+      v_finding ->> 'message',
+      NULLIF(v_finding ->> 'currency', ''),
+      NULLIF(v_finding ->> 'financial_impact_minor', '')::bigint,
+      v_finding ->> 'sort_key'
+    )
+    RETURNING id INTO v_finding_id;
+
+    IF v_finding ? 'order_record_ids'
+      AND jsonb_typeof(v_finding -> 'order_record_ids') = 'array'
+    THEN
+      FOR v_order_id IN
+        SELECT (value #>> '{}')::uuid
+        FROM jsonb_array_elements(v_finding -> 'order_record_ids')
+      LOOP
+        IF NOT EXISTS (
+          SELECT 1
+          FROM public.order_records AS o
+          WHERE o.id = v_order_id
+            AND o.import_batch_id = p_import_batch_id
+            AND o.user_id = v_user_id
+        ) THEN
+          RAISE EXCEPTION 'Finding order_record_id does not belong to this import';
+        END IF;
+
+        INSERT INTO public.finding_order_records (
+          finding_id,
+          order_record_id,
+          user_id,
+          import_batch_id
+        )
+        VALUES (
+          v_finding_id,
+          v_order_id,
+          v_user_id,
+          p_import_batch_id
+        );
+      END LOOP;
+    END IF;
+
+    IF v_finding ? 'payment_record_ids'
+      AND jsonb_typeof(v_finding -> 'payment_record_ids') = 'array'
+    THEN
+      FOR v_payment_id IN
+        SELECT (value #>> '{}')::uuid
+        FROM jsonb_array_elements(v_finding -> 'payment_record_ids')
+      LOOP
+        IF NOT EXISTS (
+          SELECT 1
+          FROM public.payment_records AS p
+          WHERE p.id = v_payment_id
+            AND p.import_batch_id = p_import_batch_id
+            AND p.user_id = v_user_id
+        ) THEN
+          RAISE EXCEPTION 'Finding payment_record_id does not belong to this import';
+        END IF;
+
+        INSERT INTO public.finding_payment_records (
+          finding_id,
+          payment_record_id,
+          user_id,
+          import_batch_id
+        )
+        VALUES (
+          v_finding_id,
+          v_payment_id,
+          v_user_id,
+          p_import_batch_id
+        );
+      END LOOP;
+    END IF;
+  END LOOP;
+
+  RETURN v_reconciliation_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.replace_current_reconciliation(uuid, integer, integer, jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.replace_current_reconciliation(uuid, integer, integer, jsonb, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION public.replace_current_reconciliation(uuid, integer, integer, jsonb, jsonb) TO authenticated;
