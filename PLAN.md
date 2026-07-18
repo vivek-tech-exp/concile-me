@@ -48,7 +48,7 @@ Use only:
 | ----- | --------------------------------------- | ----------- |
 | 1     | Application foundation                  | COMPLETE    |
 | 2     | Supabase and authentication             | COMPLETE    |
-| 3     | Database model and user isolation       | NOT STARTED |
+| 3     | Database model and user isolation       | IN PROGRESS |
 | 4     | CSV ingestion                           | NOT STARTED |
 | 5     | Reconciliation specification            | NOT STARTED |
 | 6     | Reconciliation engine and persistence   | NOT STARTED |
