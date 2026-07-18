@@ -47,7 +47,7 @@ Use only:
 | Stage | Outcome                                 | Status      |
 | ----- | --------------------------------------- | ----------- |
 | 1     | Application foundation                  | COMPLETE    |
-| 2     | Supabase and authentication             | NOT STARTED |
+| 2     | Supabase and authentication             | IN PROGRESS |
 | 3     | Database model and user isolation       | NOT STARTED |
 | 4     | CSV ingestion                           | NOT STARTED |
 | 5     | Reconciliation specification            | NOT STARTED |
