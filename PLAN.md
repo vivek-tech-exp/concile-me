@@ -49,7 +49,7 @@ Use only:
 | 1     | Application foundation                  | COMPLETE    |
 | 2     | Supabase and authentication             | COMPLETE    |
 | 3     | Database model and user isolation       | COMPLETE    |
-| 4     | CSV ingestion                           | NOT STARTED |
+| 4     | CSV ingestion                           | IN PROGRESS |
 | 5     | Reconciliation specification            | NOT STARTED |
 | 6     | Reconciliation engine and persistence   | NOT STARTED |
 | 7     | Dashboard and discrepancy investigation | NOT STARTED |
