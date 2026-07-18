@@ -1,7 +1,7 @@
 SET search_path TO public, extensions, tests;
 
 BEGIN;
-SELECT plan(16);
+SELECT plan(19);
 
 SELECT ok(
   to_regclass('public.import_batches') IS NOT NULL,
@@ -38,9 +38,32 @@ SELECT ok(
 
 SELECT ok(
   (SELECT data_type FROM information_schema.columns
-   WHERE table_schema = 'public' AND table_name = 'order_records' AND column_name = 'amount_minor')
+   WHERE table_schema = 'public' AND table_name = 'order_records' AND column_name = 'net_amount_minor')
   = 'bigint',
-  'order amounts are bigint'
+  'order net amounts are bigint'
+);
+
+SELECT ok(
+  (SELECT data_type FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'order_records' AND column_name = 'order_timestamp')
+  = 'timestamp without time zone',
+  'order timestamps are timestamp without time zone'
+);
+
+SELECT ok(
+  (SELECT data_type FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'payment_records' AND column_name = 'processed_at')
+  = 'timestamp without time zone',
+  'payment processed_at is timestamp without time zone'
+);
+
+SELECT ok(
+  (SELECT COUNT(*) = 3
+   FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'import_batches'
+     AND column_name IN ('orders_row_count', 'payments_row_count', 'warning_count')),
+  'import_batches stores row and warning counts'
 );
 
 SELECT ok(

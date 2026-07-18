@@ -1,4 +1,4 @@
--- Shared helpers for Stage 3 pgTAP tests (applied via schema_paths on db reset).
+-- Shared helpers for Stage 3/4 pgTAP tests (applied via schema_paths on db reset).
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 
 CREATE SCHEMA IF NOT EXISTS tests;
@@ -77,14 +77,19 @@ AS $$
     'source_row_number', p_row,
     'original_order_id', 'ORD-' || p_row::text,
     'normalized_order_id', 'ORD-' || p_row::text,
-    'original_status', 'paid',
-    'normalized_status', 'paid',
+    'original_customer_email', 'buyer@example.com',
+    'original_status', 'completed',
+    'normalized_status', 'completed',
     'original_currency', 'USD',
     'normalized_currency', 'USD',
-    'original_amount', '10.00',
-    'amount_minor', 1000,
-    'original_order_date', '2024-01-01',
-    'order_date', '2024-01-01'
+    'original_gross_amount', '10.00',
+    'gross_amount_minor', 1000,
+    'original_discount', '0.00',
+    'discount_minor', 0,
+    'original_net_amount', '10.00',
+    'net_amount_minor', 1000,
+    'original_order_date', '2024-01-01 00:00:00',
+    'order_timestamp', '2024-01-01 00:00:00'
   );
 $$;
 
@@ -101,14 +106,18 @@ AS $$
     'normalized_order_reference', 'ORD-' || p_row::text,
     'original_type', 'charge',
     'normalized_type', 'charge',
-    'original_status', 'succeeded',
-    'normalized_status', 'succeeded',
+    'original_status', 'settled',
+    'normalized_status', 'settled',
     'original_currency', 'USD',
     'normalized_currency', 'USD',
     'original_amount', '10.00',
     'amount_minor', 1000,
-    'original_transaction_date', '2024-01-01',
-    'transaction_date', '2024-01-01'
+    'original_fee', '0.30',
+    'fee_minor', 30,
+    'original_net_settled', '9.70',
+    'net_settled_minor', 970,
+    'original_transaction_date', '01/01/2024 00:00',
+    'processed_at', '2024-01-01 00:00:00'
   );
 $$;
 

@@ -1,7 +1,7 @@
 SET search_path TO public, extensions, tests;
 
 BEGIN;
-SELECT plan(14);
+SELECT plan(18);
 
 SELECT tests.create_user(
   '11111111-1111-1111-1111-111111111111',
@@ -39,6 +39,24 @@ SELECT is(
 );
 
 SELECT is(
+  (SELECT orders_row_count FROM public.import_batches WHERE idempotency_key = 'atomic-ok'),
+  1,
+  'import stores orders_row_count'
+);
+
+SELECT is(
+  (SELECT payments_row_count FROM public.import_batches WHERE idempotency_key = 'atomic-ok'),
+  1,
+  'import stores payments_row_count'
+);
+
+SELECT is(
+  (SELECT warning_count FROM public.import_batches WHERE idempotency_key = 'atomic-ok'),
+  1,
+  'import stores warning_count'
+);
+
+SELECT is(
   public.create_import_batch(
     'atomic-ok',
     'orders.csv',
@@ -60,6 +78,22 @@ SELECT is(
 SELECT throws_ok(
   $$
     SELECT public.create_import_batch(
+      'atomic-empty',
+      'orders.csv',
+      'payments.csv',
+      '[]'::jsonb,
+      jsonb_build_array(tests.sample_payment(1)),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'orders must not be empty',
+  'empty orders array is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
       'atomic-fail',
       'orders.csv',
       'payments.csv',
@@ -68,17 +102,22 @@ SELECT throws_ok(
           'source_row_number', 1,
           'original_order_id', 'x',
           'normalized_order_id', 'x',
-          'original_status', 'paid',
-          'normalized_status', 'paid',
+          'original_customer_email', 'buyer@example.com',
+          'original_status', 'completed',
+          'normalized_status', 'completed',
           'original_currency', 'usd',
           'normalized_currency', 'usd',
-          'original_amount', '1',
-          'amount_minor', 1,
-          'original_order_date', '2024-01-01',
-          'order_date', NULL
+          'original_gross_amount', '1',
+          'gross_amount_minor', 1,
+          'original_discount', '0',
+          'discount_minor', 0,
+          'original_net_amount', '1',
+          'net_amount_minor', 1,
+          'original_order_date', '2024-01-01 00:00:00',
+          'order_timestamp', '2024-01-01 00:00:00'
         )
       ),
-      '[]'::jsonb,
+      jsonb_build_array(tests.sample_payment(1)),
       '[]'::jsonb
     )
   $$,
