@@ -1,23 +1,16 @@
+import { ImportForm } from "@/features/imports/import-form";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  ImportHistory,
+  loadOwnedImports,
+} from "@/features/imports/import-history";
 
-export default function AppHomePage() {
+export default async function AppHomePage() {
+  const imports = await loadOwnedImports();
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Application home</CardTitle>
-        <CardDescription>
-          Placeholder for import, reconciliation, and dashboard workflows.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        You are signed in. CSV import and reconciliation arrive in later stages.
-      </CardContent>
-    </Card>
+    <div className="space-y-8">
+      <ImportForm />
+      <ImportHistory result={imports} />
+    </div>
   );
 }

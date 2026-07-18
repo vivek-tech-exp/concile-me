@@ -44,7 +44,7 @@ Use one Supabase project for both localhost and production:
 
 Local and prod share the same Supabase URL and publishable key (already in `.env.local` and Vercel).
 
-### Database schema (Stage 3)
+### Database schema (Stages 3–4)
 
 The complete database definition lives in `supabase/schema.sql` (no migration files).
 
@@ -59,6 +59,29 @@ npm run db:types:check    # fail if generated types are stale
 ```
 
 **Cascade deletion:** deleting an Auth user cascades through `import_batches` and all owned children (orders, payments, reconciliations, metrics, findings, and lineage). Import-time data-quality warnings are stored as findings with `reconciliation_id IS NULL` and are removed with the import, not with reconciliation replacement.
+
+Hosted databases should match `supabase/schema.sql`. Never reset or drop the linked hosted database. Apply schema changes only after explicit approval, using the current `schema.sql` as the source of truth (no migration files in the repository).
+
+### CSV import (Stage 4)
+
+Authenticated users upload exactly one orders CSV and one payments CSV on `/app`.
+
+| Rule | Value |
+| --- | --- |
+| Max size | 1 MiB per file |
+| Max rows | 5,000 data rows per file |
+| Encoding | UTF-8 (optional BOM) |
+| Delimiter | Comma |
+| Orders headers | `order_id,order_date,customer_email,currency,gross_amount,discount,net_amount,status` |
+| Payments headers | `transaction_ref,processed_at,order_reference,currency,amount,fee,net_settled,type,status` |
+
+**Blocking errors** reject the import (no database write): wrong/missing/duplicate/unexpected headers, swapped files, invalid UTF-8, oversized files, unsupported statuses/types, malformed money or required timestamps, and other row validation failures.
+
+**Non-blocking warnings** still allow import: missing/invalid customer email, missing order discount, missing payment `processed_at`, and identifiers changed by trim/case normalization.
+
+Reference sample pair (`sample/orders.csv`, `sample/payments.csv`): 185 orders, 187 payments, 5 warnings, 0 blocking errors.
+
+API: `POST /api/imports` (`multipart/form-data` with `orders`, `payments`, and UUID `idempotencyKey`).
 
 ## Scripts
 

@@ -49,7 +49,7 @@ describe("auth route handlers", () => {
       }) as never,
     );
 
-    expect(response.status).toBe(307);
+    expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("http://localhost/app");
   });
 
@@ -58,7 +58,13 @@ describe("auth route handlers", () => {
       auth: {
         signInWithPassword: vi
           .fn()
-          .mockResolvedValue({ error: { message: "Invalid login credentials" } }),
+          .mockResolvedValue({
+            error: {
+              code: "invalid_credentials",
+              message: "Invalid login credentials",
+              status: 400,
+            },
+          }),
       },
     });
 
@@ -69,10 +75,38 @@ describe("auth route handlers", () => {
       }) as never,
     );
 
+    expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe(
       "http://localhost/login?error=invalid_credentials",
     );
     expect(response.headers.get("location")).not.toContain("Invalid login");
+  });
+
+  it("maps existing-account signup errors clearly", async () => {
+    createClientMock.mockResolvedValue({
+      auth: {
+        signUp: vi.fn().mockResolvedValue({
+          data: { session: null, user: null },
+          error: {
+            code: "user_already_exists",
+            message: "User already registered",
+            status: 422,
+          },
+        }),
+      },
+    });
+
+    const response = await signupPost(
+      formRequest("/auth/signup", {
+        email: "user@example.com",
+        password: "password123",
+      }) as never,
+    );
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "http://localhost/signup?error=account_exists",
+    );
   });
 
   it("signs up with an immediate session and redirects to /app", async () => {

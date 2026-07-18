@@ -1,7 +1,7 @@
 SET search_path TO public, extensions, tests;
 
 BEGIN;
-SELECT plan(14);
+SELECT plan(21);
 
 SELECT tests.create_user(
   '11111111-1111-1111-1111-111111111111',
@@ -16,15 +16,15 @@ SELECT lives_ok(
       'atomic-ok',
       'orders.csv',
       'payments.csv',
-      jsonb_build_array(tests.sample_order(1)),
-      jsonb_build_array(tests.sample_payment(1)),
+      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(tests.sample_payment(2)),
       jsonb_build_array(
         jsonb_build_object(
           'code', 'WARN',
           'severity', 'low',
           'message', 'warning',
           'sort_key', 'w1',
-          'order_record_source_rows', jsonb_build_array(1)
+          'order_record_source_rows', jsonb_build_array(2)
         )
       )
     )
@@ -36,6 +36,24 @@ SELECT is(
   (SELECT status FROM public.import_batches WHERE idempotency_key = 'atomic-ok'),
   'completed',
   'successful import is completed'
+);
+
+SELECT is(
+  (SELECT orders_row_count FROM public.import_batches WHERE idempotency_key = 'atomic-ok'),
+  1,
+  'import stores orders_row_count'
+);
+
+SELECT is(
+  (SELECT payments_row_count FROM public.import_batches WHERE idempotency_key = 'atomic-ok'),
+  1,
+  'import stores payments_row_count'
+);
+
+SELECT is(
+  (SELECT warning_count FROM public.import_batches WHERE idempotency_key = 'atomic-ok'),
+  1,
+  'import stores warning_count'
 );
 
 SELECT is(
@@ -60,35 +78,102 @@ SELECT is(
 SELECT throws_ok(
   $$
     SELECT public.create_import_batch(
-      'atomic-fail',
+      'atomic-empty',
+      'orders.csv',
+      'payments.csv',
+      '[]'::jsonb,
+      jsonb_build_array(tests.sample_payment(2)),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'orders must not be empty',
+  'empty orders array is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      'atomic-fail-row',
       'orders.csv',
       'payments.csv',
       jsonb_build_array(
-        jsonb_build_object(
-          'source_row_number', 1,
-          'original_order_id', 'x',
-          'normalized_order_id', 'x',
-          'original_status', 'paid',
-          'normalized_status', 'paid',
-          'original_currency', 'usd',
-          'normalized_currency', 'usd',
-          'original_amount', '1',
-          'amount_minor', 1,
-          'original_order_date', '2024-01-01',
-          'order_date', NULL
-        )
+        (tests.sample_order(2) || jsonb_build_object('source_row_number', 1))
       ),
-      '[]'::jsonb,
+      jsonb_build_array(tests.sample_payment(2)),
       '[]'::jsonb
     )
   $$,
   '23514',
   NULL,
-  'invalid import payload fails'
+  'source row 1 is rejected as header lineage'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      'atomic-fail-status',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_status', 'paid',
+          'normalized_status', 'paid'
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      '[]'::jsonb
+    )
+  $$,
+  '23514',
+  NULL,
+  'unsupported order status is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      'atomic-fail-money',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_net_amount', '-1.00',
+          'net_amount_minor', -100
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      '[]'::jsonb
+    )
+  $$,
+  '23514',
+  NULL,
+  'negative money is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      'atomic-fail-type',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(
+        (tests.sample_payment(2) || jsonb_build_object(
+          'original_type', 'capture',
+          'normalized_type', 'capture'
+        ))
+      ),
+      '[]'::jsonb
+    )
+  $$,
+  '23514',
+  NULL,
+  'unsupported payment type is rejected'
 );
 
 SELECT is(
-  (SELECT COUNT(*)::integer FROM public.import_batches WHERE idempotency_key = 'atomic-fail'),
+  (SELECT COUNT(*)::integer FROM public.import_batches WHERE idempotency_key LIKE 'atomic-fail%'),
   0,
   'failed import does not leave a batch row'
 );
@@ -206,8 +291,8 @@ SELECT public.create_import_batch(
   'atomic-b',
   'orders.csv',
   'payments.csv',
-  jsonb_build_array(tests.sample_order(1)),
-  jsonb_build_array(tests.sample_payment(1)),
+  jsonb_build_array(tests.sample_order(2)),
+  jsonb_build_array(tests.sample_payment(2)),
   '[]'::jsonb
 );
 
@@ -265,8 +350,8 @@ SELECT public.create_import_batch(
   'atomic-cascade',
   'orders.csv',
   'payments.csv',
-  jsonb_build_array(tests.sample_order(1)),
-  jsonb_build_array(tests.sample_payment(1)),
+  jsonb_build_array(tests.sample_order(2)),
+  jsonb_build_array(tests.sample_payment(2)),
   '[]'::jsonb
 );
 SELECT tests.clear_authentication();

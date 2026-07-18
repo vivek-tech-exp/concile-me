@@ -178,45 +178,59 @@ export type Database = {
           id: string
           idempotency_key: string
           orders_filename: string
+          orders_row_count: number
           payments_filename: string
+          payments_row_count: number
           status: string
           updated_at: string
           user_id: string
+          warning_count: number
         }
         Insert: {
           created_at?: string
           id?: string
           idempotency_key: string
           orders_filename: string
+          orders_row_count?: number
           payments_filename: string
+          payments_row_count?: number
           status: string
           updated_at?: string
           user_id: string
+          warning_count?: number
         }
         Update: {
           created_at?: string
           id?: string
           idempotency_key?: string
           orders_filename?: string
+          orders_row_count?: number
           payments_filename?: string
+          payments_row_count?: number
           status?: string
           updated_at?: string
           user_id?: string
+          warning_count?: number
         }
         Relationships: []
       }
       order_records: {
         Row: {
-          amount_minor: number
           created_at: string
+          discount_minor: number | null
+          gross_amount_minor: number
           id: string
           import_batch_id: string
+          net_amount_minor: number
           normalized_currency: string
           normalized_order_id: string
           normalized_status: string
-          order_date: string | null
-          original_amount: string
+          order_timestamp: string
           original_currency: string
+          original_customer_email: string | null
+          original_discount: string | null
+          original_gross_amount: string
+          original_net_amount: string
           original_order_date: string
           original_order_id: string
           original_status: string
@@ -224,16 +238,21 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          amount_minor: number
           created_at?: string
+          discount_minor?: number | null
+          gross_amount_minor: number
           id?: string
           import_batch_id: string
+          net_amount_minor: number
           normalized_currency: string
           normalized_order_id: string
           normalized_status: string
-          order_date?: string | null
-          original_amount: string
+          order_timestamp: string
           original_currency: string
+          original_customer_email?: string | null
+          original_discount?: string | null
+          original_gross_amount: string
+          original_net_amount: string
           original_order_date: string
           original_order_id: string
           original_status: string
@@ -241,16 +260,21 @@ export type Database = {
           user_id: string
         }
         Update: {
-          amount_minor?: number
           created_at?: string
+          discount_minor?: number | null
+          gross_amount_minor?: number
           id?: string
           import_batch_id?: string
+          net_amount_minor?: number
           normalized_currency?: string
           normalized_order_id?: string
           normalized_status?: string
-          order_date?: string | null
-          original_amount?: string
+          order_timestamp?: string
           original_currency?: string
+          original_customer_email?: string | null
+          original_discount?: string | null
+          original_gross_amount?: string
+          original_net_amount?: string
           original_order_date?: string
           original_order_id?: string
           original_status?: string
@@ -271,8 +295,10 @@ export type Database = {
         Row: {
           amount_minor: number
           created_at: string
+          fee_minor: number
           id: string
           import_batch_id: string
+          net_settled_minor: number
           normalized_currency: string
           normalized_order_reference: string
           normalized_payment_id: string
@@ -280,20 +306,24 @@ export type Database = {
           normalized_type: string
           original_amount: string
           original_currency: string
+          original_fee: string
+          original_net_settled: string
           original_order_reference: string
           original_payment_id: string
           original_status: string
           original_transaction_date: string
           original_type: string
+          processed_at: string | null
           source_row_number: number
-          transaction_date: string | null
           user_id: string
         }
         Insert: {
           amount_minor: number
           created_at?: string
+          fee_minor: number
           id?: string
           import_batch_id: string
+          net_settled_minor: number
           normalized_currency: string
           normalized_order_reference: string
           normalized_payment_id: string
@@ -301,20 +331,24 @@ export type Database = {
           normalized_type: string
           original_amount: string
           original_currency: string
+          original_fee: string
+          original_net_settled: string
           original_order_reference: string
           original_payment_id: string
           original_status: string
           original_transaction_date: string
           original_type: string
+          processed_at?: string | null
           source_row_number: number
-          transaction_date?: string | null
           user_id: string
         }
         Update: {
           amount_minor?: number
           created_at?: string
+          fee_minor?: number
           id?: string
           import_batch_id?: string
+          net_settled_minor?: number
           normalized_currency?: string
           normalized_order_reference?: string
           normalized_payment_id?: string
@@ -322,13 +356,15 @@ export type Database = {
           normalized_type?: string
           original_amount?: string
           original_currency?: string
+          original_fee?: string
+          original_net_settled?: string
           original_order_reference?: string
           original_payment_id?: string
           original_status?: string
           original_transaction_date?: string
           original_type?: string
+          processed_at?: string | null
           source_row_number?: number
-          transaction_date?: string | null
           user_id?: string
         }
         Relationships: [

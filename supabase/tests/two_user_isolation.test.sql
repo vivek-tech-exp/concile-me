@@ -18,8 +18,8 @@ SELECT public.create_import_batch(
   'iso-a',
   'orders.csv',
   'payments.csv',
-  jsonb_build_array(tests.sample_order(1)),
-  jsonb_build_array(tests.sample_payment(1)),
+  jsonb_build_array(tests.sample_order(2)),
+  jsonb_build_array(tests.sample_payment(2)),
   jsonb_build_array(
     jsonb_build_object(
       'code', 'WARN_A',
@@ -155,22 +155,28 @@ SELECT throws_ok(
       normalized_status,
       original_currency,
       normalized_currency,
-      original_amount,
-      amount_minor,
-      original_order_date
+      original_gross_amount,
+      gross_amount_minor,
+      original_net_amount,
+      net_amount_minor,
+      original_order_date,
+      order_timestamp
     ) VALUES (
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       current_setting('tests.a_batch')::uuid,
       99,
       'x',
       'x',
-      'paid',
-      'paid',
+      'completed',
+      'completed',
       'USD',
       'USD',
       '1',
       1,
-      '2024-01-01'
+      '1',
+      1,
+      '2024-01-01 00:00:00',
+      '2024-01-01 00:00:00'
     )
   $$,
   '42501',
@@ -204,8 +210,8 @@ SELECT public.create_import_batch(
   'iso-b',
   'orders.csv',
   'payments.csv',
-  jsonb_build_array(tests.sample_order(1)),
-  jsonb_build_array(tests.sample_payment(1)),
+  jsonb_build_array(tests.sample_order(2)),
+  jsonb_build_array(tests.sample_payment(2)),
   '[]'::jsonb
 );
 

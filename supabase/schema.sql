@@ -36,10 +36,19 @@ CREATE TABLE public.import_batches (
   orders_filename text NOT NULL,
   payments_filename text NOT NULL,
   idempotency_key text NOT NULL,
+  orders_row_count integer NOT NULL DEFAULT 0,
+  payments_row_count integer NOT NULL DEFAULT 0,
+  warning_count integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT import_batches_status_check
     CHECK (status IN ('processing', 'completed')),
+  CONSTRAINT import_batches_counts_nonnegative
+    CHECK (
+      orders_row_count >= 0
+      AND payments_row_count >= 0
+      AND warning_count >= 0
+    ),
   CONSTRAINT import_batches_id_user_key UNIQUE (id, user_id),
   CONSTRAINT import_batches_user_idempotency_key UNIQUE (user_id, idempotency_key)
 );
@@ -68,21 +77,41 @@ CREATE TABLE public.order_records (
   source_row_number integer NOT NULL,
   original_order_id text NOT NULL,
   normalized_order_id text NOT NULL,
+  original_customer_email text,
   original_status text NOT NULL,
   normalized_status text NOT NULL,
   original_currency text NOT NULL,
   normalized_currency text NOT NULL,
-  original_amount text NOT NULL,
-  amount_minor bigint NOT NULL,
+  original_gross_amount text NOT NULL,
+  gross_amount_minor bigint NOT NULL,
+  original_discount text,
+  discount_minor bigint,
+  original_net_amount text NOT NULL,
+  net_amount_minor bigint NOT NULL,
   original_order_date text NOT NULL,
-  order_date date,
+  order_timestamp timestamp without time zone NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT order_records_source_row_positive
-    CHECK (source_row_number > 0),
+  CONSTRAINT order_records_source_row_data
+    CHECK (source_row_number > 1),
+  CONSTRAINT order_records_status_check
+    CHECK (normalized_status IN ('completed', 'cancelled', 'refunded')),
   CONSTRAINT order_records_currency_check
     CHECK (public.is_iso_currency(normalized_currency)),
-  CONSTRAINT order_records_amount_safe_check
-    CHECK (public.is_safe_js_bigint(amount_minor)),
+  CONSTRAINT order_records_gross_safe_check
+    CHECK (public.is_safe_js_bigint(gross_amount_minor)),
+  CONSTRAINT order_records_discount_safe_check
+    CHECK (
+      discount_minor IS NULL
+      OR public.is_safe_js_bigint(discount_minor)
+    ),
+  CONSTRAINT order_records_net_safe_check
+    CHECK (public.is_safe_js_bigint(net_amount_minor)),
+  CONSTRAINT order_records_amounts_nonnegative
+    CHECK (
+      gross_amount_minor >= 0
+      AND net_amount_minor >= 0
+      AND (discount_minor IS NULL OR discount_minor >= 0)
+    ),
   CONSTRAINT order_records_import_row_key
     UNIQUE (import_batch_id, source_row_number),
   CONSTRAINT order_records_id_import_user_key
@@ -130,15 +159,33 @@ CREATE TABLE public.payment_records (
   normalized_currency text NOT NULL,
   original_amount text NOT NULL,
   amount_minor bigint NOT NULL,
+  original_fee text NOT NULL,
+  fee_minor bigint NOT NULL,
+  original_net_settled text NOT NULL,
+  net_settled_minor bigint NOT NULL,
   original_transaction_date text NOT NULL,
-  transaction_date date,
+  processed_at timestamp without time zone,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT payment_records_source_row_positive
-    CHECK (source_row_number > 0),
+  CONSTRAINT payment_records_source_row_data
+    CHECK (source_row_number > 1),
+  CONSTRAINT payment_records_type_check
+    CHECK (normalized_type IN ('charge', 'refund')),
+  CONSTRAINT payment_records_status_check
+    CHECK (normalized_status IN ('settled', 'pending', 'failed')),
   CONSTRAINT payment_records_currency_check
     CHECK (public.is_iso_currency(normalized_currency)),
   CONSTRAINT payment_records_amount_safe_check
     CHECK (public.is_safe_js_bigint(amount_minor)),
+  CONSTRAINT payment_records_fee_safe_check
+    CHECK (public.is_safe_js_bigint(fee_minor)),
+  CONSTRAINT payment_records_net_settled_safe_check
+    CHECK (public.is_safe_js_bigint(net_settled_minor)),
+  CONSTRAINT payment_records_amounts_nonnegative
+    CHECK (
+      amount_minor >= 0
+      AND fee_minor >= 0
+      AND net_settled_minor >= 0
+    ),
   CONSTRAINT payment_records_import_row_key
     UNIQUE (import_batch_id, source_row_number),
   CONSTRAINT payment_records_id_import_user_key
@@ -457,19 +504,33 @@ BEGIN
     RETURN v_existing_id;
   END IF;
 
+  IF jsonb_array_length(p_orders) = 0 THEN
+    RAISE EXCEPTION 'orders must not be empty';
+  END IF;
+
+  IF jsonb_array_length(p_payments) = 0 THEN
+    RAISE EXCEPTION 'payments must not be empty';
+  END IF;
+
   INSERT INTO public.import_batches (
     user_id,
     status,
     orders_filename,
     payments_filename,
-    idempotency_key
+    idempotency_key,
+    orders_row_count,
+    payments_row_count,
+    warning_count
   )
   VALUES (
     v_user_id,
     'processing',
     p_orders_filename,
     p_payments_filename,
-    p_idempotency_key
+    p_idempotency_key,
+    jsonb_array_length(p_orders),
+    jsonb_array_length(p_payments),
+    jsonb_array_length(p_warnings)
   )
   RETURNING id INTO v_batch_id;
 
@@ -483,14 +544,19 @@ BEGIN
       source_row_number,
       original_order_id,
       normalized_order_id,
+      original_customer_email,
       original_status,
       normalized_status,
       original_currency,
       normalized_currency,
-      original_amount,
-      amount_minor,
+      original_gross_amount,
+      gross_amount_minor,
+      original_discount,
+      discount_minor,
+      original_net_amount,
+      net_amount_minor,
       original_order_date,
-      order_date
+      order_timestamp
     )
     VALUES (
       v_user_id,
@@ -498,14 +564,19 @@ BEGIN
       (v_order ->> 'source_row_number')::integer,
       v_order ->> 'original_order_id',
       v_order ->> 'normalized_order_id',
+      NULLIF(v_order ->> 'original_customer_email', ''),
       v_order ->> 'original_status',
       v_order ->> 'normalized_status',
       v_order ->> 'original_currency',
       v_order ->> 'normalized_currency',
-      v_order ->> 'original_amount',
-      (v_order ->> 'amount_minor')::bigint,
+      v_order ->> 'original_gross_amount',
+      (v_order ->> 'gross_amount_minor')::bigint,
+      NULLIF(v_order ->> 'original_discount', ''),
+      NULLIF(v_order ->> 'discount_minor', '')::bigint,
+      v_order ->> 'original_net_amount',
+      (v_order ->> 'net_amount_minor')::bigint,
       v_order ->> 'original_order_date',
-      NULLIF(v_order ->> 'order_date', '')::date
+      (v_order ->> 'order_timestamp')::timestamp without time zone
     )
     RETURNING id, source_row_number INTO v_order_id, v_row_number;
 
@@ -532,8 +603,12 @@ BEGIN
       normalized_currency,
       original_amount,
       amount_minor,
+      original_fee,
+      fee_minor,
+      original_net_settled,
+      net_settled_minor,
       original_transaction_date,
-      transaction_date
+      processed_at
     )
     VALUES (
       v_user_id,
@@ -551,8 +626,12 @@ BEGIN
       v_payment ->> 'normalized_currency',
       v_payment ->> 'original_amount',
       (v_payment ->> 'amount_minor')::bigint,
+      v_payment ->> 'original_fee',
+      (v_payment ->> 'fee_minor')::bigint,
+      v_payment ->> 'original_net_settled',
+      (v_payment ->> 'net_settled_minor')::bigint,
       v_payment ->> 'original_transaction_date',
-      NULLIF(v_payment ->> 'transaction_date', '')::date
+      NULLIF(v_payment ->> 'processed_at', '')::timestamp without time zone
     )
     RETURNING id, source_row_number INTO v_payment_id, v_row_number;
 
