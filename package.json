@@ -14,6 +14,7 @@
     "test": "vitest run",
     "db:reset": "supabase db reset --yes && docker exec -i supabase_db_concile-me psql -U postgres -v ON_ERROR_STOP=1 < supabase/schema.sql && docker exec -i supabase_db_concile-me psql -U postgres -v ON_ERROR_STOP=1 < supabase/test_helpers.sql",
     "test:db": "npm run db:reset && supabase db test --local supabase/tests",
+    "db:lint": "supabase db lint --local --schema public --fail-on error",
     "db:types": "supabase gen types typescript --local > lib/supabase/database.types.ts",
     "db:types:check": "npm run db:types && git diff --exit-code -- lib/supabase/database.types.ts"
   },

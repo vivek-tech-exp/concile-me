@@ -278,10 +278,10 @@ Indexes on `user_id` and composite ownership columns used by policies and FKs.
 
 ## Acceptance criteria
 
-- [ ] Schema applies to a fresh database
-- [ ] Constraints, indexes, and RLS verified
-- [ ] Atomic import and reconciliation RPCs behave as specified
-- [ ] Owner-only RLS and two-user isolation pass
-- [ ] Account cascade deletion verified
-- [ ] Generated types wired; `test` / `typecheck` / `lint` / `build` pass
-- [ ] No `supabase/migrations/`, no service-role key
+- [x] Schema applies to a fresh database
+- [x] Constraints, indexes, and RLS verified
+- [x] Atomic import and reconciliation RPCs behave as specified
+- [x] Owner-only RLS and two-user isolation pass
+- [x] Account cascade deletion verified
+- [x] Generated types wired; `test` / `typecheck` / `lint` / `build` pass
+- [x] No `supabase/migrations/`, no service-role key
