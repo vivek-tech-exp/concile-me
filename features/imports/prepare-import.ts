@@ -133,16 +133,28 @@ function validateFileMeta(
   }
 }
 
+function papaErrorSourceRow(error: Papa.ParseError): number | undefined {
+  if (typeof error.row !== "number") {
+    return undefined;
+  }
+
+  // FieldMismatch `row` is a 0-based data-row index (header excluded).
+  // Quotes `row` is a 0-based file-line index that already includes the header.
+  // CSV lineage counts the header as row 1.
+  if (error.type === "Quotes") {
+    return error.row + 1;
+  }
+
+  return error.row + 2;
+}
+
 function mapPapaErrors(
   source: CsvSource,
   errors: Papa.ParseError[],
   collector: IssueCollector,
 ): void {
   for (const error of errors) {
-    // PapaParse data-row indexes are 0-based; CSV lineage counts the header as
-    // row 1, so the first data row is row 2.
-    const row =
-      typeof error.row === "number" ? error.row + 2 : undefined;
+    const row = papaErrorSourceRow(error);
     if (error.type === "FieldMismatch") {
       pushIssue(collector, {
         source,

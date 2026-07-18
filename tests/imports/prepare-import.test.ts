@@ -103,11 +103,29 @@ describe("prepareImportFromCsvText", () => {
       expect(fieldCount?.row).toBe(2);
     }
 
-    const quotes = pair(
+    const quotesFirstDataRow = pair(
       `${ORDER_HEADER}\n"ORD-1,2025-04-13 00:00:00,a@example.com,USD,10.00,0.00,10.00,completed\n`,
       `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
     );
-    expect(quotes.ok).toBe(false);
+    expect(quotesFirstDataRow.ok).toBe(false);
+    if (!quotesFirstDataRow.ok) {
+      const malformed = quotesFirstDataRow.issues.find(
+        (issue) => issue.code === "MALFORMED_QUOTES",
+      );
+      expect(malformed?.row).toBe(2);
+    }
+
+    const quotesSecondDataRow = pair(
+      `${ORDER_HEADER}\n${validOrderRow}\n"ORD-2,2025-04-13 00:00:00,a@example.com,USD,10.00,0.00,10.00,completed\n`,
+      `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
+    );
+    expect(quotesSecondDataRow.ok).toBe(false);
+    if (!quotesSecondDataRow.ok) {
+      const malformed = quotesSecondDataRow.issues.find(
+        (issue) => issue.code === "MALFORMED_QUOTES",
+      );
+      expect(malformed?.row).toBe(3);
+    }
   });
 
   it("ignores blank lines and accepts a UTF-8 BOM", () => {
