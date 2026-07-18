@@ -47,7 +47,7 @@ Use only:
 | Stage | Outcome                                 | Status      |
 | ----- | --------------------------------------- | ----------- |
 | 1     | Application foundation                  | COMPLETE    |
-| 2     | Supabase and authentication             | IN PROGRESS |
+| 2     | Supabase and authentication             | COMPLETE    |
 | 3     | Database model and user isolation       | NOT STARTED |
 | 4     | CSV ingestion                           | NOT STARTED |
 | 5     | Reconciliation specification            | NOT STARTED |
@@ -57,7 +57,7 @@ Use only:
 | 9     | Hardening and documentation             | NOT STARTED |
 | 10    | Deployment and production acceptance    | NOT STARTED |
 
-**Current stage:** Stage 2 — Supabase and authentication.
+**Current stage:** Stage 3 — Database model and user isolation.
 
 ---
 

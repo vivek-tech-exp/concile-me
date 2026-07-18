@@ -159,9 +159,9 @@ Manual browser acceptance against a real Supabase project (see Stage 2 plan chec
 
 ## Acceptance criteria
 
-- [ ] Dependencies and publishable-key env validation in place
-- [ ] Browser, server, and proxy clients centralized
-- [ ] Signup, login, logout, confirm flows work with safe errors
-- [ ] Navigation table enforced; `/app` uses `getUser()`
-- [ ] Automated tests and final scripts pass
-- [ ] Real-browser acceptance completed before PLAN/README completion update
+- [x] Dependencies and publishable-key env validation in place
+- [x] Browser, server, and proxy clients centralized
+- [x] Signup, login, logout, confirm flows work with safe errors
+- [x] Navigation table enforced; `/app` uses `getUser()`
+- [x] Automated tests and final scripts pass
+- [x] Real-browser acceptance completed before PLAN/README completion update
