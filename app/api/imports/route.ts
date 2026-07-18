@@ -1,5 +1,6 @@
 import {
   idempotencyKeySchema,
+  MAX_WARNING_DETAILS,
   type ImportResponse,
   type ImportWarning,
   type CsvSource,
@@ -109,7 +110,8 @@ async function loadPersistedImportResponse(
     )
     .eq("import_batch_id", batchId)
     .is("reconciliation_id", null)
-    .order("sort_key", { ascending: true });
+    .order("sort_key", { ascending: true })
+    .limit(MAX_WARNING_DETAILS);
 
   if (findingsError) {
     return null;
@@ -125,6 +127,7 @@ async function loadPersistedImportResponse(
     batchId: batch.data.id,
     orderCount: batch.data.orders_row_count,
     paymentCount: batch.data.payments_row_count,
+    warningCount: batch.data.warning_count,
     warnings: parsedFindings.data.map(warningFromPersistedFinding),
   };
 }

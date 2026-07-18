@@ -106,7 +106,8 @@ function mockAuthenticatedClient(options: {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     is: vi.fn().mockReturnThis(),
-    order: vi.fn().mockResolvedValue({
+    order: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue({
       data: options.findings ?? [],
       error: null,
     }),
@@ -322,6 +323,7 @@ describe("POST /api/imports", () => {
       batchId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       orderCount: 1,
       paymentCount: 1,
+      warningCount: 1,
       warnings: [
         {
           code: "MISSING_OR_INVALID_EMAIL",
@@ -398,6 +400,7 @@ describe("POST /api/imports", () => {
       batchId: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
       orderCount: 185,
       paymentCount: 187,
+      warningCount: 5,
       warnings: [
         {
           code: "MISSING_PAYMENT_TIMESTAMP",
@@ -410,6 +413,57 @@ describe("POST /api/imports", () => {
         },
       ],
     });
+  });
+
+  it("reports persisted warningCount when warning details are capped", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: "cccccccc-dddd-4eee-8fff-000000000000",
+      error: null,
+    });
+    mockAuthenticatedClient({
+      rpc,
+      batch: {
+        id: "cccccccc-dddd-4eee-8fff-000000000000",
+        orders_row_count: 5000,
+        payments_row_count: 5000,
+        warning_count: 250,
+      },
+      findings: [
+        {
+          code: "MISSING_OR_INVALID_EMAIL",
+          severity: "low",
+          message: "customer_email is missing or invalid",
+          sort_key: "orders:000002:MISSING_OR_INVALID_EMAIL",
+          currency: null,
+          financial_impact_minor: null,
+        },
+      ],
+    });
+    prepareImportFromFilesMock.mockResolvedValue({
+      ok: true,
+      data: {
+        ordersFilename: "orders.csv",
+        paymentsFilename: "payments.csv",
+        orders: ORDER_PAYLOAD,
+        payments: PAYMENT_PAYLOAD,
+        warnings: [],
+      },
+    });
+
+    const response = await POST(
+      multipartRequest({
+        idempotencyKey: "11111111-1111-4111-8111-111111111111",
+        orders: new File(["x"], "orders.csv", { type: "text/csv" }),
+        payments: new File(["y"], "payments.csv", { type: "text/csv" }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.warningCount).toBe(250);
+    expect(body.warnings).toHaveLength(1);
+    expect(body.warningCount).toBeGreaterThan(body.warnings.length);
   });
 
   it("maps persistence failures to a safe retryable error", async () => {

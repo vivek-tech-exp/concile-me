@@ -45,6 +45,7 @@ export function ImportForm() {
   const [success, setSuccess] = useState<{
     orderCount: number;
     paymentCount: number;
+    warningCount: number;
     warnings: ImportWarning[];
   } | null>(null);
   const [error, setError] = useState<{
@@ -108,6 +109,7 @@ export function ImportForm() {
         setSuccess({
           orderCount: payload.orderCount,
           paymentCount: payload.paymentCount,
+          warningCount: payload.warningCount,
           warnings: payload.warnings,
         });
         setIdempotency((current) => onImportSucceeded(current, newIdempotencyKey));
@@ -212,8 +214,12 @@ export function ImportForm() {
           >
             <p>
               Imported {success.orderCount} orders and {success.paymentCount}{" "}
-              payments with {success.warnings.length} warning
-              {success.warnings.length === 1 ? "" : "s"}.
+              payments with {success.warningCount} warning
+              {success.warningCount === 1 ? "" : "s"}
+              {success.warningCount > success.warnings.length
+                ? ` (showing first ${success.warnings.length})`
+                : ""}
+              .
             </p>
             {success.warnings.length > 0 ? (
               <ul className="list-disc space-y-1 pl-5 text-muted-foreground">

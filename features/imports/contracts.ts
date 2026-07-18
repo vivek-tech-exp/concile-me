@@ -3,6 +3,10 @@ import { z } from "zod";
 export const MAX_FILE_BYTES = 1_048_576;
 export const MAX_DATA_ROWS = 5_000;
 export const MAX_ISSUE_DETAILS = 100;
+/** Cap warning detail payloads returned by import success responses. */
+export const MAX_WARNING_DETAILS = 100;
+/** Cap warning previews shown per batch in import history. */
+export const HISTORY_WARNING_PREVIEW = 5;
 
 export const ORDER_HEADERS = [
   "order_id",
@@ -102,6 +106,8 @@ export type ImportSuccessResponse = {
   batchId: string;
   orderCount: number;
   paymentCount: number;
+  /** Persisted total; may exceed `warnings.length` when details are capped. */
+  warningCount: number;
   warnings: ImportWarning[];
 };
 
