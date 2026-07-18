@@ -6,7 +6,8 @@ Local development for the revenue reconciliation dashboard.
 
 - Node.js 24
 - npm
-- A Supabase project with Email auth enabled
+- Docker (for local Supabase)
+- A Supabase project with Email auth enabled (local via CLI, or remote)
 
 ## Setup
 
@@ -43,6 +44,22 @@ Use one Supabase project for both localhost and production:
 
 Local and prod share the same Supabase URL and publishable key (already in `.env.local` and Vercel).
 
+### Database schema (Stage 3)
+
+The complete database definition lives in `supabase/schema.sql` (no migration files).
+
+Local apply and tests (requires `supabase start`):
+
+```bash
+npm run db:reset          # reset local DB, apply schema.sql + test helpers
+npm run test:db           # reset, then run pgTAP tests
+supabase db lint --local --schema public
+npm run db:types          # regenerate lib/supabase/database.types.ts
+npm run db:types:check    # fail if generated types are stale
+```
+
+**Cascade deletion:** deleting an Auth user cascades through `import_batches` and all owned children (orders, payments, reconciliations, metrics, findings, and lineage). Import-time data-quality warnings are stored as findings with `reconciliation_id IS NULL` and are removed with the import, not with reconciliation replacement.
+
 ## Scripts
 
 | Script | Purpose |
@@ -51,6 +68,9 @@ Local and prod share the same Supabase URL and publishable key (already in `.env
 | `npm run typecheck` | Generate route types and run TypeScript |
 | `npm run lint` | Run ESLint |
 | `npm run test` | Run unit tests |
+| `npm run test:db` | Reset local DB and run pgTAP tests |
+| `npm run db:reset` | Reset local DB and apply `supabase/schema.sql` |
+| `npm run db:types` | Generate Supabase TypeScript types from local DB |
 | `npm run build` | Production build |
 
 ## Authentication routes
