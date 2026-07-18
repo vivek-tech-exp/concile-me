@@ -2,11 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { redirectToApp, redirectToSignup } from "@/lib/auth/http";
 import { mapSupabaseAuthError } from "@/lib/auth/map-supabase-error";
+import { isSameOriginRequest } from "@/lib/auth/same-origin";
 import { createClient } from "@/lib/supabase/server";
 import { parseAuthCredentials } from "@/lib/validation/auth-credentials";
 import { SupabaseConfigError } from "@/lib/validation/env";
 
 export async function POST(request: NextRequest) {
+  if (!isSameOriginRequest(request)) {
+    return redirectToSignup(request, { error: "csrf" });
+  }
+
   try {
     const formData = await request.formData();
     const parsed = parseAuthCredentials(formData);
