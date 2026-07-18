@@ -19,6 +19,13 @@ import {
   type ImportResponse,
   type ImportWarning,
 } from "@/features/imports/contracts";
+import {
+  createImportIdempotencyState,
+  markImportAttemptStarted,
+  onImportFilesChanged,
+  onImportSucceeded,
+  type ImportIdempotencyState,
+} from "@/features/imports/import-idempotency";
 
 function newIdempotencyKey(): string {
   return crypto.randomUUID();
@@ -30,7 +37,10 @@ export function ImportForm() {
   const paymentsId = useId();
   const [ordersFile, setOrdersFile] = useState<File | null>(null);
   const [paymentsFile, setPaymentsFile] = useState<File | null>(null);
-  const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
+  const [idempotency, setIdempotency] = useState<ImportIdempotencyState>(() =>
+    createImportIdempotencyState(newIdempotencyKey),
+  );
+  const [fileInputResetToken, setFileInputResetToken] = useState(0);
   const [isPending, startTransition] = useTransition();
   const [success, setSuccess] = useState<{
     orderCount: number;
@@ -47,17 +57,34 @@ export function ImportForm() {
   const bothSelected = ordersFile !== null && paymentsFile !== null;
   const canSubmit = bothSelected && !isPending;
 
+  function handleFileChange(
+    source: "orders" | "payments",
+    file: File | null,
+  ) {
+    if (source === "orders") {
+      setOrdersFile(file);
+    } else {
+      setPaymentsFile(file);
+    }
+    setSuccess(null);
+    setError(null);
+    setIdempotency((current) => onImportFilesChanged(current, newIdempotencyKey));
+  }
+
   function submit() {
     if (!ordersFile || !paymentsFile) {
       return;
     }
+
+    const keyForAttempt = idempotency.key;
+    setIdempotency((current) => markImportAttemptStarted(current));
 
     startTransition(async () => {
       setError(null);
       setSuccess(null);
 
       const body = new FormData();
-      body.set("idempotencyKey", idempotencyKey);
+      body.set("idempotencyKey", keyForAttempt);
       body.set("orders", ordersFile);
       body.set("payments", paymentsFile);
 
@@ -83,7 +110,8 @@ export function ImportForm() {
           paymentCount: payload.paymentCount,
           warnings: payload.warnings,
         });
-        setIdempotencyKey(newIdempotencyKey());
+        setIdempotency((current) => onImportSucceeded(current, newIdempotencyKey));
+        setFileInputResetToken((token) => token + 1);
         setOrdersFile(null);
         setPaymentsFile(null);
         router.refresh();
@@ -110,16 +138,14 @@ export function ImportForm() {
           <div className="space-y-2">
             <Label htmlFor={ordersId}>Orders CSV</Label>
             <Input
-              key={`orders-${idempotencyKey}`}
+              key={`orders-${fileInputResetToken}`}
               id={ordersId}
               type="file"
               accept=".csv,text/csv"
               disabled={isPending}
               aria-describedby={`${ordersId}-hint`}
               onChange={(event) => {
-                setOrdersFile(event.target.files?.[0] ?? null);
-                setSuccess(null);
-                setError(null);
+                handleFileChange("orders", event.target.files?.[0] ?? null);
               }}
             />
             <p id={`${ordersId}-hint`} className="text-xs text-muted-foreground">
@@ -131,16 +157,14 @@ export function ImportForm() {
           <div className="space-y-2">
             <Label htmlFor={paymentsId}>Payments CSV</Label>
             <Input
-              key={`payments-${idempotencyKey}`}
+              key={`payments-${fileInputResetToken}`}
               id={paymentsId}
               type="file"
               accept=".csv,text/csv"
               disabled={isPending}
               aria-describedby={`${paymentsId}-hint`}
               onChange={(event) => {
-                setPaymentsFile(event.target.files?.[0] ?? null);
-                setSuccess(null);
-                setError(null);
+                handleFileChange("payments", event.target.files?.[0] ?? null);
               }}
             />
             <p
