@@ -1,6 +1,21 @@
--- Targeted ALTER statements for an existing Stage 3 hosted Supabase project.
--- DO NOT apply without explicit approval. Never reset or drop the linked database.
--- Local development continues to use a full apply of supabase/schema.sql via db:reset.
+-- APPLIED 2026-07-18 on hosted project sjckxfbpywbzxvfqcbdt.
+--
+-- The hosted public schema had no Stage 3 tables, so these ALTER statements were
+-- not used. The complete Stage 3+4 definition from supabase/schema.sql was applied
+-- instead via Supabase MCP migrations (no database reset/drop):
+--
+--   stage_3_4_helpers_and_import_batches
+--   stage_3_4_order_and_payment_records
+--   stage_3_4_reconciliation_and_findings
+--   stage_3_4_create_import_batch
+--   stage_3_4_replace_reconciliation
+--   stage_3_4_owner_rls_grants
+--
+-- Keep this file only as historical notes for environments that already had Stage 3.
+-- Local development continues to use: npm run db:reset (full schema.sql apply).
+-- Never reset or drop the linked hosted database.
+
+-- Original targeted ALTER contents (not executed on hosted; superseded by full schema):
 
 BEGIN;
 
@@ -38,7 +53,6 @@ ALTER TABLE public.order_records
   ADD COLUMN IF NOT EXISTS original_discount text,
   ADD COLUMN IF NOT EXISTS discount_minor bigint;
 
--- Backfill required money columns for any pre-Stage-4 rows (development only).
 UPDATE public.order_records
 SET
   original_gross_amount = COALESCE(original_gross_amount, original_net_amount),
@@ -67,12 +81,9 @@ UPDATE public.order_records
 SET order_timestamp = COALESCE(order_timestamp, order_date::timestamp)
 WHERE order_timestamp IS NULL AND order_date IS NOT NULL;
 
--- Development projects with incomplete timestamps must be cleaned before NOT NULL.
--- ALTER TABLE public.order_records ALTER COLUMN order_timestamp SET NOT NULL;
 ALTER TABLE public.order_records
   DROP COLUMN IF EXISTS order_date;
 
--- payment_records
 ALTER TABLE public.payment_records
   ADD COLUMN IF NOT EXISTS original_fee text,
   ADD COLUMN IF NOT EXISTS fee_minor bigint,
@@ -106,8 +117,5 @@ ALTER TABLE public.payment_records
 
 ALTER TABLE public.payment_records
   DROP COLUMN IF EXISTS transaction_date;
-
--- Recreate create_import_batch from supabase/schema.sql after this ALTER.
--- (Copy the full CREATE OR REPLACE FUNCTION public.create_import_batch ... block.)
 
 COMMIT;
