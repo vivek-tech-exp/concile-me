@@ -22,8 +22,310 @@ AS $$
   SELECT p_value >= -9007199254740991 AND p_value <= 9007199254740991;
 $$;
 
+CREATE OR REPLACE FUNCTION public.is_uuid_text(p_value text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT p_value ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_import_filename(p_value text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT
+    p_value IS NOT NULL
+    AND length(p_value) BETWEEN 1 AND 255
+    AND p_value = btrim(p_value)
+    AND p_value !~ '[\\/\x00]';
+$$;
+
+-- Exact non-negative decimal money → minor units (matches app parseMoneyToMinor).
+CREATE OR REPLACE FUNCTION public.parse_money_to_minor(p_raw text)
+RETURNS bigint
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_parts text[];
+  v_whole text;
+  v_frac text;
+  v_minor bigint;
+BEGIN
+  IF p_raw IS NULL OR p_raw = '' THEN
+    RETURN NULL;
+  END IF;
+
+  IF p_raw ~ '[+\-eE, ]' THEN
+    RETURN NULL;
+  END IF;
+
+  v_parts := regexp_match(p_raw, '^(\d+)(?:\.(\d{1,2}))?$');
+  IF v_parts IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  v_whole := v_parts[1];
+  v_frac := rpad(COALESCE(v_parts[2], ''), 2, '0');
+  v_minor := (v_whole::bigint * 100) + v_frac::bigint;
+
+  IF v_minor < 0 OR NOT public.is_safe_js_bigint(v_minor) THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN v_minor;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.parse_order_timestamp(p_raw text)
+RETURNS timestamp without time zone
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_year integer;
+  v_month integer;
+  v_day integer;
+  v_hour integer;
+  v_minute integer;
+  v_second integer;
+BEGIN
+  IF p_raw IS NULL OR p_raw !~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$' THEN
+    RETURN NULL;
+  END IF;
+
+  v_year := substring(p_raw from 1 for 4)::integer;
+  v_month := substring(p_raw from 6 for 2)::integer;
+  v_day := substring(p_raw from 9 for 2)::integer;
+  v_hour := substring(p_raw from 12 for 2)::integer;
+  v_minute := substring(p_raw from 15 for 2)::integer;
+  v_second := substring(p_raw from 18 for 2)::integer;
+
+  IF v_month < 1 OR v_month > 12
+    OR v_day < 1 OR v_day > 31
+    OR v_hour > 23 OR v_minute > 59 OR v_second > 59
+  THEN
+    RETURN NULL;
+  END IF;
+
+  BEGIN
+    RETURN make_timestamp(v_year, v_month, v_day, v_hour, v_minute, v_second);
+  EXCEPTION
+    WHEN OTHERS THEN
+      RETURN NULL;
+  END;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.parse_payment_timestamp(p_raw text)
+RETURNS timestamp without time zone
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_day integer;
+  v_month integer;
+  v_year integer;
+  v_hour integer;
+  v_minute integer;
+BEGIN
+  IF p_raw IS NULL OR p_raw !~ '^\d{2}/\d{2}/\d{4} \d{2}:\d{2}$' THEN
+    RETURN NULL;
+  END IF;
+
+  v_day := substring(p_raw from 1 for 2)::integer;
+  v_month := substring(p_raw from 4 for 2)::integer;
+  v_year := substring(p_raw from 7 for 4)::integer;
+  v_hour := substring(p_raw from 12 for 2)::integer;
+  v_minute := substring(p_raw from 15 for 2)::integer;
+
+  IF v_month < 1 OR v_month > 12
+    OR v_day < 1 OR v_day > 31
+    OR v_hour > 23 OR v_minute > 59
+  THEN
+    RETURN NULL;
+  END IF;
+
+  BEGIN
+    RETURN make_timestamp(v_year, v_month, v_day, v_hour, v_minute, 0);
+  EXCEPTION
+    WHEN OTHERS THEN
+      RETURN NULL;
+  END;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.assert_import_order_payload(p_order jsonb)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_original_discount text;
+  v_discount_minor bigint;
+  v_expected_ts timestamp without time zone;
+  v_provided_ts timestamp without time zone;
+BEGIN
+  IF p_order IS NULL OR jsonb_typeof(p_order) <> 'object' THEN
+    RAISE EXCEPTION 'order payload must be an object';
+  END IF;
+
+  IF upper(btrim(COALESCE(p_order ->> 'original_order_id', '')))
+    IS DISTINCT FROM (p_order ->> 'normalized_order_id')
+  THEN
+    RAISE EXCEPTION 'order normalized_order_id does not match original_order_id';
+  END IF;
+
+  IF lower(btrim(COALESCE(p_order ->> 'original_status', '')))
+    IS DISTINCT FROM (p_order ->> 'normalized_status')
+  THEN
+    RAISE EXCEPTION 'order normalized_status does not match original_status';
+  END IF;
+
+  IF upper(btrim(COALESCE(p_order ->> 'original_currency', '')))
+    IS DISTINCT FROM (p_order ->> 'normalized_currency')
+  THEN
+    RAISE EXCEPTION 'order normalized_currency does not match original_currency';
+  END IF;
+
+  IF public.parse_money_to_minor(p_order ->> 'original_gross_amount')
+    IS DISTINCT FROM NULLIF(p_order ->> 'gross_amount_minor', '')::bigint
+  THEN
+    RAISE EXCEPTION 'order gross_amount_minor does not match original_gross_amount';
+  END IF;
+
+  IF public.parse_money_to_minor(p_order ->> 'original_net_amount')
+    IS DISTINCT FROM NULLIF(p_order ->> 'net_amount_minor', '')::bigint
+  THEN
+    RAISE EXCEPTION 'order net_amount_minor does not match original_net_amount';
+  END IF;
+
+  v_original_discount := NULLIF(p_order ->> 'original_discount', '');
+  v_discount_minor := NULLIF(p_order ->> 'discount_minor', '')::bigint;
+  IF v_original_discount IS NULL THEN
+    IF v_discount_minor IS NOT NULL THEN
+      RAISE EXCEPTION 'order discount_minor must be null when original_discount is empty';
+    END IF;
+  ELSIF public.parse_money_to_minor(v_original_discount) IS DISTINCT FROM v_discount_minor THEN
+    RAISE EXCEPTION 'order discount_minor does not match original_discount';
+  END IF;
+
+  v_expected_ts := public.parse_order_timestamp(p_order ->> 'original_order_date');
+  IF v_expected_ts IS NULL THEN
+    RAISE EXCEPTION 'order original_order_date is invalid';
+  END IF;
+
+  BEGIN
+    v_provided_ts := (p_order ->> 'order_timestamp')::timestamp without time zone;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE EXCEPTION 'order order_timestamp is invalid';
+  END;
+
+  IF v_provided_ts IS DISTINCT FROM v_expected_ts THEN
+    RAISE EXCEPTION 'order order_timestamp does not match original_order_date';
+  END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.assert_import_payment_payload(p_payment jsonb)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_original_ts text;
+  v_expected_ts timestamp without time zone;
+  v_provided_ts timestamp without time zone;
+BEGIN
+  IF p_payment IS NULL OR jsonb_typeof(p_payment) <> 'object' THEN
+    RAISE EXCEPTION 'payment payload must be an object';
+  END IF;
+
+  IF upper(btrim(COALESCE(p_payment ->> 'original_payment_id', '')))
+    IS DISTINCT FROM (p_payment ->> 'normalized_payment_id')
+  THEN
+    RAISE EXCEPTION 'payment normalized_payment_id does not match original_payment_id';
+  END IF;
+
+  IF upper(btrim(COALESCE(p_payment ->> 'original_order_reference', '')))
+    IS DISTINCT FROM (p_payment ->> 'normalized_order_reference')
+  THEN
+    RAISE EXCEPTION 'payment normalized_order_reference does not match original_order_reference';
+  END IF;
+
+  IF lower(btrim(COALESCE(p_payment ->> 'original_type', '')))
+    IS DISTINCT FROM (p_payment ->> 'normalized_type')
+  THEN
+    RAISE EXCEPTION 'payment normalized_type does not match original_type';
+  END IF;
+
+  IF lower(btrim(COALESCE(p_payment ->> 'original_status', '')))
+    IS DISTINCT FROM (p_payment ->> 'normalized_status')
+  THEN
+    RAISE EXCEPTION 'payment normalized_status does not match original_status';
+  END IF;
+
+  IF upper(btrim(COALESCE(p_payment ->> 'original_currency', '')))
+    IS DISTINCT FROM (p_payment ->> 'normalized_currency')
+  THEN
+    RAISE EXCEPTION 'payment normalized_currency does not match original_currency';
+  END IF;
+
+  IF public.parse_money_to_minor(p_payment ->> 'original_amount')
+    IS DISTINCT FROM NULLIF(p_payment ->> 'amount_minor', '')::bigint
+  THEN
+    RAISE EXCEPTION 'payment amount_minor does not match original_amount';
+  END IF;
+
+  IF public.parse_money_to_minor(p_payment ->> 'original_fee')
+    IS DISTINCT FROM NULLIF(p_payment ->> 'fee_minor', '')::bigint
+  THEN
+    RAISE EXCEPTION 'payment fee_minor does not match original_fee';
+  END IF;
+
+  IF public.parse_money_to_minor(p_payment ->> 'original_net_settled')
+    IS DISTINCT FROM NULLIF(p_payment ->> 'net_settled_minor', '')::bigint
+  THEN
+    RAISE EXCEPTION 'payment net_settled_minor does not match original_net_settled';
+  END IF;
+
+  v_original_ts := COALESCE(p_payment ->> 'original_transaction_date', '');
+  IF btrim(v_original_ts) = '' THEN
+    IF NULLIF(p_payment ->> 'processed_at', '') IS NOT NULL THEN
+      RAISE EXCEPTION 'payment processed_at must be null when original_transaction_date is empty';
+    END IF;
+  ELSE
+    v_expected_ts := public.parse_payment_timestamp(v_original_ts);
+    IF v_expected_ts IS NULL THEN
+      RAISE EXCEPTION 'payment original_transaction_date is invalid';
+    END IF;
+
+    BEGIN
+      v_provided_ts := (p_payment ->> 'processed_at')::timestamp without time zone;
+    EXCEPTION
+      WHEN OTHERS THEN
+        RAISE EXCEPTION 'payment processed_at is invalid';
+    END;
+
+    IF v_provided_ts IS DISTINCT FROM v_expected_ts THEN
+      RAISE EXCEPTION 'payment processed_at does not match original_transaction_date';
+    END IF;
+  END IF;
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.is_iso_currency(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_safe_js_bigint(bigint) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_uuid_text(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_import_filename(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.parse_money_to_minor(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.parse_order_timestamp(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.parse_payment_timestamp(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.assert_import_order_payload(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.assert_import_payment_payload(jsonb) FROM PUBLIC;
 
 -- ---------------------------------------------------------------------------
 -- import_batches
@@ -469,16 +771,16 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  IF p_idempotency_key IS NULL OR length(trim(p_idempotency_key)) = 0 THEN
-    RAISE EXCEPTION 'idempotency_key is required';
+  IF p_idempotency_key IS NULL OR NOT public.is_uuid_text(p_idempotency_key) THEN
+    RAISE EXCEPTION 'idempotency_key must be a UUID';
   END IF;
 
-  IF p_orders_filename IS NULL OR length(trim(p_orders_filename)) = 0 THEN
-    RAISE EXCEPTION 'orders_filename is required';
+  IF NOT public.is_import_filename(p_orders_filename) THEN
+    RAISE EXCEPTION 'orders_filename is invalid';
   END IF;
 
-  IF p_payments_filename IS NULL OR length(trim(p_payments_filename)) = 0 THEN
-    RAISE EXCEPTION 'payments_filename is required';
+  IF NOT public.is_import_filename(p_payments_filename) THEN
+    RAISE EXCEPTION 'payments_filename is invalid';
   END IF;
 
   IF p_orders IS NULL OR jsonb_typeof(p_orders) <> 'array' THEN
@@ -512,6 +814,14 @@ BEGIN
     RAISE EXCEPTION 'payments must not be empty';
   END IF;
 
+  IF jsonb_array_length(p_orders) > 5000 THEN
+    RAISE EXCEPTION 'orders exceed the 5000 row limit';
+  END IF;
+
+  IF jsonb_array_length(p_payments) > 5000 THEN
+    RAISE EXCEPTION 'payments exceed the 5000 row limit';
+  END IF;
+
   INSERT INTO public.import_batches (
     user_id,
     status,
@@ -538,6 +848,8 @@ BEGIN
     SELECT value
     FROM jsonb_array_elements(p_orders)
   LOOP
+    PERFORM public.assert_import_order_payload(v_order);
+
     INSERT INTO public.order_records (
       user_id,
       import_batch_id,
@@ -587,6 +899,8 @@ BEGIN
     SELECT value
     FROM jsonb_array_elements(p_payments)
   LOOP
+    PERFORM public.assert_import_payment_payload(v_payment);
+
     INSERT INTO public.payment_records (
       user_id,
       import_batch_id,
