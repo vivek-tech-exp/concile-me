@@ -11,7 +11,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:reset": "supabase db reset --yes && docker exec -i supabase_db_concile-me psql -U postgres -v ON_ERROR_STOP=1 < supabase/schema.sql && docker exec -i supabase_db_concile-me psql -U postgres -v ON_ERROR_STOP=1 < supabase/test_helpers.sql",
+    "test:db": "npm run db:reset && supabase db test --local supabase/tests"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
@@ -35,6 +37,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "supabase": "^2.109.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"
