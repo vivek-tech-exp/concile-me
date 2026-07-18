@@ -43,18 +43,19 @@ Import one paired orders/payments CSV batch for an authenticated user: validate 
 
 ## Required headers
 
-Orders (exact set):
+Orders (exact set, including spelling and whitespace):
 
 ```text
 order_id,order_date,customer_email,currency,gross_amount,discount,net_amount,status
 ```
 
-Payments (exact set):
+Payments (exact set, including spelling and whitespace):
 
 ```text
 transaction_ref,processed_at,order_reference,currency,amount,fee,net_settled,type,status
 ```
 
+Do not trim or otherwise normalize header names before matching.
 Swapped files are detected when each file’s header set matches the other source’s required headers.
 
 ## Supported values

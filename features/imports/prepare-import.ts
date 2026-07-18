@@ -208,7 +208,7 @@ function validateHeaders(
     return false;
   }
 
-  if (fields.some((field) => field.trim() === "")) {
+  if (fields.some((field) => field === "" || field.trim() === "")) {
     pushIssue(collector, {
       source,
       row: 1,
@@ -654,7 +654,7 @@ function readRawHeaderFields(text: string): string[] | undefined {
   if (!row) {
     return undefined;
   }
-  return row.map((field) => field.trim());
+  return row.map((field) => field);
 }
 
 function parseCsvFile(
@@ -673,7 +673,6 @@ function parseCsvFile(
     delimiter: ",",
     skipEmptyLines: "greedy",
     dynamicTyping: false,
-    transformHeader: (header) => header.trim(),
   });
 
   mapPapaErrors(source, parsed.errors, collector);

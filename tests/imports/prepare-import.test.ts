@@ -42,7 +42,7 @@ describe("prepareImportFromCsvText", () => {
     expect(result.data.warnings).toHaveLength(0);
   });
 
-  it("rejects missing, extra, and duplicate headers", () => {
+  it("rejects missing, extra, duplicate, and whitespace-padded headers", () => {
     const missing = pair(
       "order_id,order_date,currency,gross_amount,discount,net_amount,status\n",
       `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
@@ -70,6 +70,20 @@ describe("prepareImportFromCsvText", () => {
       expect(duplicate.issues.some((issue) => issue.code === "HEADERS_DUPLICATE")).toBe(
         true,
       );
+    }
+
+    const padded = pair(
+      ` order_id,order_date,customer_email,currency,gross_amount,discount,net_amount,status\n${validOrderRow}\n`,
+      `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
+    );
+    expect(padded.ok).toBe(false);
+    if (!padded.ok) {
+      expect(
+        padded.issues.some((issue) => issue.code === "HEADERS_MISSING_COLUMNS"),
+      ).toBe(true);
+      expect(
+        padded.issues.some((issue) => issue.code === "HEADERS_UNEXPECTED"),
+      ).toBe(true);
     }
   });
 
