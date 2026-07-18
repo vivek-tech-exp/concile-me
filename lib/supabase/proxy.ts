@@ -3,6 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { resolveAuthRedirect } from "@/lib/auth/redirects";
 import {
+  applyAuthCookiesToResponse,
+  type AuthCookieToSet,
+} from "@/lib/supabase/apply-auth-cookies";
+import {
   parseSupabaseEnv,
   SupabaseConfigError,
 } from "@/lib/validation/env";
@@ -11,6 +15,8 @@ export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   });
+  let authCookies: AuthCookieToSet[] = [];
+  let authHeaders: Record<string, string> = {};
 
   let env;
   try {
@@ -42,18 +48,15 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet, headers) {
+          authCookies = cookiesToSet;
+          authHeaders = headers;
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
           supabaseResponse = NextResponse.next({
             request,
           });
-          cookiesToSet.forEach(({ name, value, options }) => {
-            supabaseResponse.cookies.set(name, value, options);
-          });
-          Object.entries(headers).forEach(([key, value]) => {
-            supabaseResponse.headers.set(key, value);
-          });
+          applyAuthCookiesToResponse(supabaseResponse, cookiesToSet, headers);
         },
       },
     },
@@ -73,10 +76,11 @@ export async function updateSession(request: NextRequest) {
     url.pathname = redirectTo;
     url.search = "";
     const redirectResponse = NextResponse.redirect(url);
-    supabaseResponse.cookies.getAll().forEach((cookie) => {
-      redirectResponse.cookies.set(cookie.name, cookie.value);
-    });
-    return redirectResponse;
+    return applyAuthCookiesToResponse(
+      redirectResponse,
+      authCookies,
+      authHeaders,
+    );
   }
 
   return supabaseResponse;

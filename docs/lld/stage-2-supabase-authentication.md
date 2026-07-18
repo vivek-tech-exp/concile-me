@@ -124,7 +124,7 @@ Email must be a valid email format. Password must be a non-empty string. Length/
 
 ### Proxy
 
-- Refresh session cookies; copy cookies and cache headers onto the response.
+- Refresh session cookies; copy cookies **with options** and cache headers onto next and redirect responses.
 - Use `getClaims()` for optimistic redirects per the table above.
 - Matcher excludes `_next/static`, `_next/image`, `favicon.ico`, and common static extensions.
 

@@ -22,5 +22,9 @@ describe("protected server authorization boundary", () => {
 
     expect(source).toContain("getClaims(");
     expect(source).not.toContain("getSession(");
+    expect(source).toContain("applyAuthCookiesToResponse");
+    expect(source).not.toContain(
+      "redirectResponse.cookies.set(cookie.name, cookie.value)",
+    );
   });
 });
