@@ -110,6 +110,7 @@ export function ImportForm() {
           <div className="space-y-2">
             <Label htmlFor={ordersId}>Orders CSV</Label>
             <Input
+              key={`orders-${idempotencyKey}`}
               id={ordersId}
               type="file"
               accept=".csv,text/csv"
@@ -130,6 +131,7 @@ export function ImportForm() {
           <div className="space-y-2">
             <Label htmlFor={paymentsId}>Payments CSV</Label>
             <Input
+              key={`payments-${idempotencyKey}`}
               id={paymentsId}
               type="file"
               accept=".csv,text/csv"
