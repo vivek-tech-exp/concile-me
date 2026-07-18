@@ -24,14 +24,20 @@ export function AuthFeedback({ error, message }: AuthFeedbackProps) {
   }
 
   return (
-    <div className="grid gap-2" role="status" aria-live="polite">
+    <div className="grid gap-2" aria-live="polite">
       {errorText ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p
+          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
           {errorText}
         </p>
       ) : null}
       {successText ? (
-        <p className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground">
+        <p
+          className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground"
+          role="status"
+        >
           {successText}
         </p>
       ) : null}

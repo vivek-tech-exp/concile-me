@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { redirectToApp, redirectToSignup } from "@/lib/auth/http";
+import { mapSupabaseAuthError } from "@/lib/auth/map-supabase-error";
 import { createClient } from "@/lib/supabase/server";
 import { parseAuthCredentials } from "@/lib/validation/auth-credentials";
 import { SupabaseConfigError } from "@/lib/validation/env";
@@ -21,7 +22,9 @@ export async function POST(request: NextRequest) {
     });
 
     if (error) {
-      return redirectToSignup(request, { error: "provider" });
+      return redirectToSignup(request, {
+        error: mapSupabaseAuthError(error, "signup"),
+      });
     }
 
     if (data.session) {

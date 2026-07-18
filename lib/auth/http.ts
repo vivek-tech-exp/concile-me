@@ -4,7 +4,7 @@ import type { AuthErrorCode, AuthMessageCode } from "@/lib/auth/messages";
 import { AUTH_PATHS } from "@/lib/auth/redirects";
 
 export function redirectToApp(request: Request) {
-  return NextResponse.redirect(new URL(AUTH_PATHS.app, request.url));
+  return NextResponse.redirect(new URL(AUTH_PATHS.app, request.url), 303);
 }
 
 export function redirectToLogin(
@@ -15,7 +15,7 @@ export function redirectToLogin(
   if (error) {
     url.searchParams.set("error", error);
   }
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(url, 303);
 }
 
 export function redirectToSignup(
@@ -29,5 +29,5 @@ export function redirectToSignup(
   if (options?.message) {
     url.searchParams.set("message", options.message);
   }
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(url, 303);
 }

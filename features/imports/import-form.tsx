@@ -125,7 +125,7 @@ export function ImportForm() {
             <p id={`${ordersId}-hint`} className="text-xs text-muted-foreground">
               Required headers: order_id, order_date, customer_email, currency,
               gross_amount, discount, net_amount, status. Client size hint only:
-              under {MAX_FILE_BYTES.toLocaleString()} bytes.
+              under {MAX_FILE_BYTES.toLocaleString("en-US")} bytes.
             </p>
           </div>
           <div className="space-y-2">
@@ -149,7 +149,7 @@ export function ImportForm() {
             >
               Required headers: transaction_ref, processed_at, order_reference,
               currency, amount, fee, net_settled, type, status. Client size hint
-              only: under {MAX_FILE_BYTES.toLocaleString()} bytes.
+              only: under {MAX_FILE_BYTES.toLocaleString("en-US")} bytes.
             </p>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { redirectToApp, redirectToLogin } from "@/lib/auth/http";
+import { mapSupabaseAuthError } from "@/lib/auth/map-supabase-error";
 import { createClient } from "@/lib/supabase/server";
 import { parseAuthCredentials } from "@/lib/validation/auth-credentials";
 import { SupabaseConfigError } from "@/lib/validation/env";
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (error) {
-      return redirectToLogin(request, "invalid_credentials");
+      return redirectToLogin(request, mapSupabaseAuthError(error, "login"));
     }
 
     return redirectToApp(request);
