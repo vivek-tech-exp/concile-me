@@ -85,6 +85,61 @@ function multipartRequest(fields: {
   });
 }
 
+function mockAuthenticatedClient(options: {
+  rpc: ReturnType<typeof vi.fn>;
+  batch?: {
+    id: string;
+    orders_row_count: number;
+    payments_row_count: number;
+    warning_count: number;
+  } | null;
+  findings?: Array<{
+    code: string;
+    severity: string;
+    message: string;
+    sort_key: string;
+    currency: string | null;
+    financial_impact_minor: number | null;
+  }>;
+}) {
+  const findingsQuery = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
+    order: vi.fn().mockResolvedValue({
+      data: options.findings ?? [],
+      error: null,
+    }),
+  };
+
+  const batchQuery = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    maybeSingle: vi.fn().mockResolvedValue({
+      data: options.batch ?? null,
+      error: null,
+    }),
+  };
+
+  createClientMock.mockResolvedValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: { user: { id: "user-1" } },
+      }),
+    },
+    rpc: options.rpc,
+    from: vi.fn((table: string) => {
+      if (table === "import_batches") {
+        return batchQuery;
+      }
+      if (table === "findings") {
+        return findingsQuery;
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }),
+  });
+}
+
 describe("POST /api/imports", () => {
   beforeEach(() => {
     createClientMock.mockReset();
@@ -207,18 +262,29 @@ describe("POST /api/imports", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("persists a valid payload and returns counts", async () => {
+  it("persists a valid payload and returns persisted counts", async () => {
     const rpc = vi.fn().mockResolvedValue({
-      data: "batch-1",
+      data: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       error: null,
     });
-    createClientMock.mockResolvedValue({
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: { id: "user-1" } },
-        }),
-      },
+    mockAuthenticatedClient({
       rpc,
+      batch: {
+        id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        orders_row_count: 1,
+        payments_row_count: 1,
+        warning_count: 1,
+      },
+      findings: [
+        {
+          code: "MISSING_OR_INVALID_EMAIL",
+          severity: "low",
+          message: "customer_email is missing or invalid",
+          sort_key: "orders:000002:MISSING_OR_INVALID_EMAIL",
+          currency: null,
+          financial_impact_minor: null,
+        },
+      ],
     });
     prepareImportFromFilesMock.mockResolvedValue({
       ok: true,
@@ -253,9 +319,16 @@ describe("POST /api/imports", () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
       ok: true,
-      batchId: "batch-1",
+      batchId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       orderCount: 1,
       paymentCount: 1,
+      warnings: [
+        {
+          code: "MISSING_OR_INVALID_EMAIL",
+          source: "orders",
+          source_row_number: 2,
+        },
+      ],
     });
     expect(rpc).toHaveBeenCalledWith("create_import_batch", {
       p_idempotency_key: "11111111-1111-4111-8111-111111111111",
@@ -275,13 +348,72 @@ describe("POST /api/imports", () => {
     });
   });
 
-  it("maps persistence failures to a safe retryable error", async () => {
-    createClientMock.mockResolvedValue({
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: { id: "user-1" } },
-        }),
+  it("returns persisted metadata for idempotent retries with different uploads", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+      error: null,
+    });
+    mockAuthenticatedClient({
+      rpc,
+      batch: {
+        id: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+        orders_row_count: 185,
+        payments_row_count: 187,
+        warning_count: 5,
       },
+      findings: [
+        {
+          code: "MISSING_PAYMENT_TIMESTAMP",
+          severity: "low",
+          message: "processed_at is missing",
+          sort_key: "payments:000059:MISSING_PAYMENT_TIMESTAMP",
+          currency: null,
+          financial_impact_minor: null,
+        },
+      ],
+    });
+    prepareImportFromFilesMock.mockResolvedValue({
+      ok: true,
+      data: {
+        ordersFilename: "other-orders.csv",
+        paymentsFilename: "other-payments.csv",
+        orders: ORDER_PAYLOAD,
+        payments: PAYMENT_PAYLOAD,
+        warnings: [],
+      },
+    });
+
+    const response = await POST(
+      multipartRequest({
+        idempotencyKey: "11111111-1111-4111-8111-111111111111",
+        orders: new File(["x"], "other-orders.csv", { type: "text/csv" }),
+        payments: new File(["y"], "other-payments.csv", { type: "text/csv" }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      ok: true,
+      batchId: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+      orderCount: 185,
+      paymentCount: 187,
+      warnings: [
+        {
+          code: "MISSING_PAYMENT_TIMESTAMP",
+          severity: "low",
+          message: "processed_at is missing",
+          sort_key: "payments:000059:MISSING_PAYMENT_TIMESTAMP",
+          source: "payments",
+          source_row_number: 59,
+          payment_record_source_rows: [59],
+        },
+      ],
+    });
+  });
+
+  it("maps persistence failures to a safe retryable error", async () => {
+    mockAuthenticatedClient({
       rpc: vi.fn().mockResolvedValue({
         data: null,
         error: { message: "relation does not exist", code: "42P01" },

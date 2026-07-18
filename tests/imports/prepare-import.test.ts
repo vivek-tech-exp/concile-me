@@ -98,6 +98,10 @@ describe("prepareImportFromCsvText", () => {
       `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
     );
     expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) {
+      const fieldCount = tooMany.issues.find((issue) => issue.code === "FIELD_COUNT");
+      expect(fieldCount?.row).toBe(2);
+    }
 
     const quotes = pair(
       `${ORDER_HEADER}\n"ORD-1,2025-04-13 00:00:00,a@example.com,USD,10.00,0.00,10.00,completed\n`,

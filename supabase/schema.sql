@@ -91,8 +91,10 @@ CREATE TABLE public.order_records (
   original_order_date text NOT NULL,
   order_timestamp timestamp without time zone NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT order_records_source_row_positive
-    CHECK (source_row_number > 0),
+  CONSTRAINT order_records_source_row_data
+    CHECK (source_row_number > 1),
+  CONSTRAINT order_records_status_check
+    CHECK (normalized_status IN ('completed', 'cancelled', 'refunded')),
   CONSTRAINT order_records_currency_check
     CHECK (public.is_iso_currency(normalized_currency)),
   CONSTRAINT order_records_gross_safe_check
@@ -104,6 +106,12 @@ CREATE TABLE public.order_records (
     ),
   CONSTRAINT order_records_net_safe_check
     CHECK (public.is_safe_js_bigint(net_amount_minor)),
+  CONSTRAINT order_records_amounts_nonnegative
+    CHECK (
+      gross_amount_minor >= 0
+      AND net_amount_minor >= 0
+      AND (discount_minor IS NULL OR discount_minor >= 0)
+    ),
   CONSTRAINT order_records_import_row_key
     UNIQUE (import_batch_id, source_row_number),
   CONSTRAINT order_records_id_import_user_key
@@ -158,8 +166,12 @@ CREATE TABLE public.payment_records (
   original_transaction_date text NOT NULL,
   processed_at timestamp without time zone,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT payment_records_source_row_positive
-    CHECK (source_row_number > 0),
+  CONSTRAINT payment_records_source_row_data
+    CHECK (source_row_number > 1),
+  CONSTRAINT payment_records_type_check
+    CHECK (normalized_type IN ('charge', 'refund')),
+  CONSTRAINT payment_records_status_check
+    CHECK (normalized_status IN ('settled', 'pending', 'failed')),
   CONSTRAINT payment_records_currency_check
     CHECK (public.is_iso_currency(normalized_currency)),
   CONSTRAINT payment_records_amount_safe_check
@@ -168,6 +180,12 @@ CREATE TABLE public.payment_records (
     CHECK (public.is_safe_js_bigint(fee_minor)),
   CONSTRAINT payment_records_net_settled_safe_check
     CHECK (public.is_safe_js_bigint(net_settled_minor)),
+  CONSTRAINT payment_records_amounts_nonnegative
+    CHECK (
+      amount_minor >= 0
+      AND fee_minor >= 0
+      AND net_settled_minor >= 0
+    ),
   CONSTRAINT payment_records_import_row_key
     UNIQUE (import_batch_id, source_row_number),
   CONSTRAINT payment_records_id_import_user_key

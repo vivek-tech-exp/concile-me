@@ -60,7 +60,7 @@ npm run db:types:check    # fail if generated types are stale
 
 **Cascade deletion:** deleting an Auth user cascades through `import_batches` and all owned children (orders, payments, reconciliations, metrics, findings, and lineage). Import-time data-quality warnings are stored as findings with `reconciliation_id IS NULL` and are removed with the import, not with reconciliation replacement.
 
-Hosted projects that already applied Stage 3 need the targeted Stage 4 `ALTER` script in `supabase/hosted_stage4_alter.sql.pending`, plus the updated `create_import_batch` function from `schema.sql`. Do not apply that file without explicit approval. Never reset or drop the linked hosted database.
+Hosted databases should match `supabase/schema.sql`. Never reset or drop the linked hosted database. Apply schema changes only after explicit approval, using the current `schema.sql` as the source of truth (no migration files in the repository).
 
 ### CSV import (Stage 4)
 

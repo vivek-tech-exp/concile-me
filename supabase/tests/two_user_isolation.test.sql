@@ -18,8 +18,8 @@ SELECT public.create_import_batch(
   'iso-a',
   'orders.csv',
   'payments.csv',
-  jsonb_build_array(tests.sample_order(1)),
-  jsonb_build_array(tests.sample_payment(1)),
+  jsonb_build_array(tests.sample_order(2)),
+  jsonb_build_array(tests.sample_payment(2)),
   jsonb_build_array(
     jsonb_build_object(
       'code', 'WARN_A',
@@ -210,8 +210,8 @@ SELECT public.create_import_batch(
   'iso-b',
   'orders.csv',
   'payments.csv',
-  jsonb_build_array(tests.sample_order(1)),
-  jsonb_build_array(tests.sample_payment(1)),
+  jsonb_build_array(tests.sample_order(2)),
+  jsonb_build_array(tests.sample_payment(2)),
   '[]'::jsonb
 );
 

@@ -139,8 +139,10 @@ function mapPapaErrors(
   collector: IssueCollector,
 ): void {
   for (const error of errors) {
+    // PapaParse data-row indexes are 0-based; CSV lineage counts the header as
+    // row 1, so the first data row is row 2.
     const row =
-      typeof error.row === "number" ? error.row + 1 : undefined;
+      typeof error.row === "number" ? error.row + 2 : undefined;
     if (error.type === "FieldMismatch") {
       pushIssue(collector, {
         source,

@@ -2,10 +2,12 @@ import {
   idempotencyKeySchema,
   type ImportResponse,
   type ImportWarning,
+  type CsvSource,
 } from "@/features/imports/contracts";
 import { prepareImportFromFiles } from "@/features/imports/prepare-import";
 import { createClient } from "@/lib/supabase/server";
 import { SupabaseConfigError } from "@/lib/validation/env";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 
@@ -29,6 +31,101 @@ function warningToRpcPayload(warning: ImportWarning) {
     ...(warning.payment_record_source_rows
       ? { payment_record_source_rows: warning.payment_record_source_rows }
       : {}),
+  };
+}
+
+const persistedBatchSchema = z.object({
+  id: z.uuid(),
+  orders_row_count: z.number().int().nonnegative(),
+  payments_row_count: z.number().int().nonnegative(),
+  warning_count: z.number().int().nonnegative(),
+});
+
+const persistedFindingSchema = z.object({
+  code: z.string().min(1),
+  severity: z.string().min(1),
+  message: z.string().min(1),
+  sort_key: z.string().min(1),
+  currency: z.string().nullable(),
+  financial_impact_minor: z.number().nullable(),
+});
+
+function warningFromPersistedFinding(
+  finding: z.infer<typeof persistedFindingSchema>,
+): ImportWarning {
+  const match = /^(orders|payments):(\d+):/.exec(finding.sort_key);
+  const source: CsvSource =
+    match?.[1] === "payments" ? "payments" : "orders";
+  const sourceRowNumber = match ? Number(match[2]) : 0;
+  const warning: ImportWarning = {
+    code: finding.code,
+    severity: "low",
+    message: finding.message,
+    sort_key: finding.sort_key,
+    source,
+    source_row_number: sourceRowNumber,
+  };
+
+  if (finding.currency) {
+    warning.currency = finding.currency;
+  }
+  if (finding.financial_impact_minor !== null) {
+    warning.financial_impact_minor = finding.financial_impact_minor;
+  }
+  if (source === "orders" && sourceRowNumber > 0) {
+    warning.order_record_source_rows = [sourceRowNumber];
+  }
+  if (source === "payments" && sourceRowNumber > 0) {
+    warning.payment_record_source_rows = [sourceRowNumber];
+  }
+
+  return warning;
+}
+
+async function loadPersistedImportResponse(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  batchId: string,
+): Promise<ImportResponse | null> {
+  const { data: batchRow, error: batchError } = await supabase
+    .from("import_batches")
+    .select("id, orders_row_count, payments_row_count, warning_count")
+    .eq("id", batchId)
+    .eq("status", "completed")
+    .maybeSingle();
+
+  if (batchError || !batchRow) {
+    return null;
+  }
+
+  const batch = persistedBatchSchema.safeParse(batchRow);
+  if (!batch.success) {
+    return null;
+  }
+
+  const { data: findings, error: findingsError } = await supabase
+    .from("findings")
+    .select(
+      "code, severity, message, sort_key, currency, financial_impact_minor",
+    )
+    .eq("import_batch_id", batchId)
+    .is("reconciliation_id", null)
+    .order("sort_key", { ascending: true });
+
+  if (findingsError) {
+    return null;
+  }
+
+  const parsedFindings = z.array(persistedFindingSchema).safeParse(findings ?? []);
+  if (!parsedFindings.success) {
+    return null;
+  }
+
+  return {
+    ok: true,
+    batchId: batch.data.id,
+    orderCount: batch.data.orders_row_count,
+    paymentCount: batch.data.payments_row_count,
+    warnings: parsedFindings.data.map(warningFromPersistedFinding),
   };
 }
 
@@ -244,11 +341,22 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  return jsonResponse({
-    ok: true,
-    batchId,
-    orderCount: prepared.data.orders.length,
-    paymentCount: prepared.data.payments.length,
-    warnings: prepared.data.warnings,
-  });
+  // Always return persisted counts/warnings so idempotent retries cannot
+  // report a different upload that was not written.
+  const persisted = await loadPersistedImportResponse(supabase, batchId);
+  if (!persisted) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: {
+          code: "PERSISTENCE",
+          message: "Import could not be saved. Please retry.",
+          retryable: true,
+        },
+      },
+      503,
+    );
+  }
+
+  return jsonResponse(persisted);
 }

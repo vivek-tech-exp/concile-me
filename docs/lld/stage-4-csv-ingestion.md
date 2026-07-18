@@ -236,7 +236,7 @@ Manual hosted upload acceptance (temporary account; delete after)
 
 ### Hosted acceptance (manual)
 
-Use a temporary authenticated account on the shared hosted project only after the pending Stage 4 `ALTER` statements in `supabase/hosted_stage4_alter.sql.pending` are explicitly approved and applied (never reset/drop the linked DB):
+Use a temporary authenticated account on the shared hosted project only after the hosted database matches `supabase/schema.sql` (never reset/drop the linked DB):
 
 1. Upload `sample/orders.csv` + `sample/payments.csv`
 2. Confirm one completed batch with 185 / 187 / 5 warnings

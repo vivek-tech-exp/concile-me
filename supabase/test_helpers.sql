@@ -68,7 +68,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION tests.sample_order(p_row integer DEFAULT 1)
+CREATE OR REPLACE FUNCTION tests.sample_order(p_row integer DEFAULT 2)
 RETURNS jsonb
 LANGUAGE sql
 IMMUTABLE
@@ -93,7 +93,7 @@ AS $$
   );
 $$;
 
-CREATE OR REPLACE FUNCTION tests.sample_payment(p_row integer DEFAULT 1)
+CREATE OR REPLACE FUNCTION tests.sample_payment(p_row integer DEFAULT 2)
 RETURNS jsonb
 LANGUAGE sql
 IMMUTABLE

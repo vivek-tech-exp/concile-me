@@ -1,7 +1,7 @@
 SET search_path TO public, extensions, tests;
 
 BEGIN;
-SELECT plan(19);
+SELECT plan(21);
 
 SELECT ok(
   to_regclass('public.import_batches') IS NOT NULL,
@@ -96,9 +96,25 @@ SELECT ok(
 SELECT ok(
   EXISTS (
     SELECT 1 FROM pg_constraint
-    WHERE conname = 'order_records_import_user_fkey'
+    WHERE conname = 'order_records_status_check'
   ),
-  'order_records composite ownership FK exists'
+  'order status check exists'
+);
+
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'payment_records_type_check'
+  ),
+  'payment type check exists'
+);
+
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'order_records_source_row_data'
+  ),
+  'order source row must be data row (> 1)'
 );
 
 SELECT ok(
