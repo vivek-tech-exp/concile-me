@@ -46,7 +46,7 @@ Use only:
 
 | Stage | Outcome                                 | Status      |
 | ----- | --------------------------------------- | ----------- |
-| 1     | Application foundation                  | NOT STARTED |
+| 1     | Application foundation                  | COMPLETE    |
 | 2     | Supabase and authentication             | NOT STARTED |
 | 3     | Database model and user isolation       | NOT STARTED |
 | 4     | CSV ingestion                           | NOT STARTED |
@@ -57,7 +57,7 @@ Use only:
 | 9     | Hardening and documentation             | NOT STARTED |
 | 10    | Deployment and production acceptance    | NOT STARTED |
 
-**Current stage:** Stage 1 — Application foundation.
+**Current stage:** Stage 2 — Supabase and authentication.
 
 ---
 
