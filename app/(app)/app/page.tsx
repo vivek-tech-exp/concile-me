@@ -16,8 +16,7 @@ export default function AppHomePage() {
         </CardDescription>
       </CardHeader>
       <CardContent className="text-sm text-muted-foreground">
-        This route is labelled scaffolding only. Authentication, data import, and
-        reconciliation are not implemented in Stage 1.
+        You are signed in. CSV import and reconciliation arrive in later stages.
       </CardContent>
     </Card>
   );
