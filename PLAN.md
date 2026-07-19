@@ -50,7 +50,7 @@ Use only:
 | 2     | Supabase and authentication             | COMPLETE    |
 | 3     | Database model and user isolation       | COMPLETE    |
 | 4     | CSV ingestion                           | COMPLETE    |
-| 5     | Reconciliation specification            | NOT STARTED |
+| 5     | Reconciliation specification            | IN PROGRESS |
 | 6     | Reconciliation engine and persistence   | NOT STARTED |
 | 7     | Dashboard and discrepancy investigation | NOT STARTED |
 | 8     | LLM explanation                         | NOT STARTED |
