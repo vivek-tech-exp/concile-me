@@ -1,7 +1,7 @@
 SET search_path TO public, extensions, tests;
 
 BEGIN;
-SELECT plan(28);
+SELECT plan(32);
 
 SELECT tests.create_user(
   '11111111-1111-1111-1111-111111111111',
@@ -304,6 +304,90 @@ SELECT throws_ok(
   'P0001',
   'orders exceed the 5000 row limit',
   'orders over 5000 rows are rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000017',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', 'not-money',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'order original_discount is invalid',
+  'malformed non-empty discount with null minor is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000018',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_order_id', '   ',
+          'normalized_order_id', ''
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'order original_order_id is required',
+  'blank order id is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000019',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(
+        (tests.sample_payment(2) || jsonb_build_object(
+          'original_payment_id', '',
+          'normalized_payment_id', ''
+        ))
+      ),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'payment original_payment_id is required',
+  'blank payment id is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000020',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(
+        (tests.sample_payment(2) || jsonb_build_object(
+          'original_order_reference', ' ',
+          'normalized_order_reference', ''
+        ))
+      ),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'payment original_order_reference is required',
+  'blank payment order reference is rejected'
 );
 
 SELECT is(

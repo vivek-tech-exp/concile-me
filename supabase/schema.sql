@@ -163,8 +163,11 @@ LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 DECLARE
-  v_original_discount text;
+  v_original_order_id text;
+  v_normalized_order_id text;
+  v_raw_discount text;
   v_discount_minor bigint;
+  v_parsed_discount bigint;
   v_expected_ts timestamp without time zone;
   v_provided_ts timestamp without time zone;
 BEGIN
@@ -172,10 +175,18 @@ BEGIN
     RAISE EXCEPTION 'order payload must be an object';
   END IF;
 
-  IF upper(btrim(COALESCE(p_order ->> 'original_order_id', '')))
-    IS DISTINCT FROM (p_order ->> 'normalized_order_id')
-  THEN
+  v_original_order_id := COALESCE(p_order ->> 'original_order_id', '');
+  v_normalized_order_id := p_order ->> 'normalized_order_id';
+  IF btrim(v_original_order_id) = '' THEN
+    RAISE EXCEPTION 'order original_order_id is required';
+  END IF;
+
+  IF upper(btrim(v_original_order_id)) IS DISTINCT FROM v_normalized_order_id THEN
     RAISE EXCEPTION 'order normalized_order_id does not match original_order_id';
+  END IF;
+
+  IF btrim(COALESCE(v_normalized_order_id, '')) = '' THEN
+    RAISE EXCEPTION 'order normalized_order_id is required';
   END IF;
 
   IF lower(btrim(COALESCE(p_order ->> 'original_status', '')))
@@ -202,14 +213,20 @@ BEGIN
     RAISE EXCEPTION 'order net_amount_minor does not match original_net_amount';
   END IF;
 
-  v_original_discount := NULLIF(p_order ->> 'original_discount', '');
+  v_raw_discount := COALESCE(p_order ->> 'original_discount', '');
   v_discount_minor := NULLIF(p_order ->> 'discount_minor', '')::bigint;
-  IF v_original_discount IS NULL THEN
+  IF btrim(v_raw_discount) = '' THEN
     IF v_discount_minor IS NOT NULL THEN
       RAISE EXCEPTION 'order discount_minor must be null when original_discount is empty';
     END IF;
-  ELSIF public.parse_money_to_minor(v_original_discount) IS DISTINCT FROM v_discount_minor THEN
-    RAISE EXCEPTION 'order discount_minor does not match original_discount';
+  ELSE
+    v_parsed_discount := public.parse_money_to_minor(v_raw_discount);
+    IF v_parsed_discount IS NULL THEN
+      RAISE EXCEPTION 'order original_discount is invalid';
+    END IF;
+    IF v_parsed_discount IS DISTINCT FROM v_discount_minor THEN
+      RAISE EXCEPTION 'order discount_minor does not match original_discount';
+    END IF;
   END IF;
 
   v_expected_ts := public.parse_order_timestamp(p_order ->> 'original_order_date');
@@ -236,6 +253,10 @@ LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 DECLARE
+  v_original_payment_id text;
+  v_normalized_payment_id text;
+  v_original_order_reference text;
+  v_normalized_order_reference text;
   v_original_ts text;
   v_expected_ts timestamp without time zone;
   v_provided_ts timestamp without time zone;
@@ -244,16 +265,34 @@ BEGIN
     RAISE EXCEPTION 'payment payload must be an object';
   END IF;
 
-  IF upper(btrim(COALESCE(p_payment ->> 'original_payment_id', '')))
-    IS DISTINCT FROM (p_payment ->> 'normalized_payment_id')
-  THEN
+  v_original_payment_id := COALESCE(p_payment ->> 'original_payment_id', '');
+  v_normalized_payment_id := p_payment ->> 'normalized_payment_id';
+  IF btrim(v_original_payment_id) = '' THEN
+    RAISE EXCEPTION 'payment original_payment_id is required';
+  END IF;
+
+  IF upper(btrim(v_original_payment_id)) IS DISTINCT FROM v_normalized_payment_id THEN
     RAISE EXCEPTION 'payment normalized_payment_id does not match original_payment_id';
   END IF;
 
-  IF upper(btrim(COALESCE(p_payment ->> 'original_order_reference', '')))
-    IS DISTINCT FROM (p_payment ->> 'normalized_order_reference')
+  IF btrim(COALESCE(v_normalized_payment_id, '')) = '' THEN
+    RAISE EXCEPTION 'payment normalized_payment_id is required';
+  END IF;
+
+  v_original_order_reference := COALESCE(p_payment ->> 'original_order_reference', '');
+  v_normalized_order_reference := p_payment ->> 'normalized_order_reference';
+  IF btrim(v_original_order_reference) = '' THEN
+    RAISE EXCEPTION 'payment original_order_reference is required';
+  END IF;
+
+  IF upper(btrim(v_original_order_reference))
+    IS DISTINCT FROM v_normalized_order_reference
   THEN
     RAISE EXCEPTION 'payment normalized_order_reference does not match original_order_reference';
+  END IF;
+
+  IF btrim(COALESCE(v_normalized_order_reference, '')) = '' THEN
+    RAISE EXCEPTION 'payment normalized_order_reference is required';
   END IF;
 
   IF lower(btrim(COALESCE(p_payment ->> 'original_type', '')))
