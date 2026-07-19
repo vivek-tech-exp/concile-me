@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { HISTORY_WARNING_PREVIEW } from "@/features/imports/contracts";
 import { createClient } from "@/lib/supabase/server";
 
 const importBatchSchema = z.object({
@@ -31,6 +32,44 @@ const warningSchema = z.object({
 export type ImportListItem = z.infer<typeof importBatchSchema> & {
   warnings: Array<z.infer<typeof warningSchema>>;
 };
+
+async function loadWarningPreviewForBatch(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  batchId: string,
+  warningCount: number,
+): Promise<
+  | { ok: true; warnings: Array<z.infer<typeof warningSchema>> }
+  | { ok: false; message: string }
+> {
+  if (warningCount === 0) {
+    return { ok: true, warnings: [] };
+  }
+
+  const { data: findings, error: findingError } = await supabase
+    .from("findings")
+    .select("id, import_batch_id, code, message, sort_key, reconciliation_id")
+    .eq("import_batch_id", batchId)
+    .is("reconciliation_id", null)
+    .order("sort_key", { ascending: true })
+    .limit(HISTORY_WARNING_PREVIEW);
+
+  if (findingError) {
+    return {
+      ok: false,
+      message: "Could not load import warnings. Please refresh and try again.",
+    };
+  }
+
+  const parsedWarnings = z.array(warningSchema).safeParse(findings ?? []);
+  if (!parsedWarnings.success) {
+    return {
+      ok: false,
+      message: "Import warnings returned unexpected data.",
+    };
+  }
+
+  return { ok: true, warnings: parsedWarnings.data };
+}
 
 export async function loadOwnedImports(): Promise<
   | { ok: true; imports: ImportListItem[] }
@@ -70,47 +109,23 @@ export async function loadOwnedImports(): Promise<
       };
     }
 
-    if (parsedBatches.data.length === 0) {
-      return { ok: true, imports: [] };
-    }
-
-    const batchIds = parsedBatches.data.map((batch) => batch.id);
-    const { data: findings, error: findingError } = await supabase
-      .from("findings")
-      .select("id, import_batch_id, code, message, sort_key, reconciliation_id")
-      .in("import_batch_id", batchIds)
-      .is("reconciliation_id", null)
-      .order("sort_key", { ascending: true });
-
-    if (findingError) {
-      return {
-        ok: false,
-        message: "Could not load import warnings. Please refresh and try again.",
-      };
-    }
-
-    const parsedWarnings = z.array(warningSchema).safeParse(findings ?? []);
-    if (!parsedWarnings.success) {
-      return {
-        ok: false,
-        message: "Import warnings returned unexpected data.",
-      };
-    }
-
-    const warningsByBatch = new Map<string, Array<z.infer<typeof warningSchema>>>();
-    for (const warning of parsedWarnings.data) {
-      const list = warningsByBatch.get(warning.import_batch_id) ?? [];
-      list.push(warning);
-      warningsByBatch.set(warning.import_batch_id, list);
-    }
-
-    return {
-      ok: true,
-      imports: parsedBatches.data.map((batch) => ({
+    const imports: ImportListItem[] = [];
+    for (const batch of parsedBatches.data) {
+      const preview = await loadWarningPreviewForBatch(
+        supabase,
+        batch.id,
+        batch.warning_count,
+      );
+      if (!preview.ok) {
+        return preview;
+      }
+      imports.push({
         ...batch,
-        warnings: (warningsByBatch.get(batch.id) ?? []).slice(0, 5),
-      })),
-    };
+        warnings: preview.warnings,
+      });
+    }
+
+    return { ok: true, imports };
   } catch {
     return {
       ok: false,
@@ -170,6 +185,9 @@ export function ImportHistory({
             const createdLabel = Number.isNaN(created.getTime())
               ? item.created_at
               : created.toLocaleString();
+            const previewTruncated =
+              item.warning_count > item.warnings.length &&
+              item.warnings.length > 0;
 
             return (
               <li
@@ -195,6 +213,12 @@ export function ImportHistory({
                       </li>
                     ))}
                   </ul>
+                ) : null}
+                {previewTruncated ? (
+                  <p className="text-xs text-muted-foreground">
+                    Showing first {item.warnings.length} of {item.warning_count}{" "}
+                    warnings.
+                  </p>
                 ) : null}
               </li>
             );

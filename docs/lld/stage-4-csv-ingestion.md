@@ -38,22 +38,24 @@ Import one paired orders/payments CSV batch for an authenticated user: validate 
 | Headers | Exact required set; order may vary |
 | Duplicate / missing / unexpected headers | Blocking |
 | Blocking issues in response | Cap details at 100; track `totalIssueCount` |
+| Warning details in response | Cap details at 100; track persisted `warningCount` |
 | Request body | Comfortably under Vercel 4.5 MB function-body limit |
 
 ## Required headers
 
-Orders (exact set):
+Orders (exact set, including spelling and whitespace):
 
 ```text
 order_id,order_date,customer_email,currency,gross_amount,discount,net_amount,status
 ```
 
-Payments (exact set):
+Payments (exact set, including spelling and whitespace):
 
 ```text
 transaction_ref,processed_at,order_reference,currency,amount,fee,net_settled,type,status
 ```
 
+Do not trim or otherwise normalize header names before matching.
 Swapped files are detected when each file’s header set matches the other source’s required headers.
 
 ## Supported values
@@ -148,7 +150,8 @@ type ImportResponse =
       batchId: string;
       orderCount: number;
       paymentCount: number;
-      warnings: ImportWarning[];
+      warningCount: number;
+      warnings: ImportWarning[]; // details capped (MAX_WARNING_DETAILS); use warningCount for total
     }
   | {
       ok: false;
@@ -175,7 +178,7 @@ Client Component (upload only):
 Server Component:
 
 - `getUser()`; list RLS-visible completed batches ordered by `created_at DESC`, then `id`
-- Filenames, creation time, row counts, warning count, first warnings
+- Filenames, creation time, row counts, warning count, first warnings (per-batch preview; show when truncated)
 - Empty, error, and retry states; refresh after successful upload
 
 No reconciliation or dashboard behavior.

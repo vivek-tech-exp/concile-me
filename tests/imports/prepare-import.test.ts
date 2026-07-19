@@ -42,7 +42,7 @@ describe("prepareImportFromCsvText", () => {
     expect(result.data.warnings).toHaveLength(0);
   });
 
-  it("rejects missing, extra, and duplicate headers", () => {
+  it("rejects missing, extra, duplicate, and whitespace-padded headers", () => {
     const missing = pair(
       "order_id,order_date,currency,gross_amount,discount,net_amount,status\n",
       `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
@@ -70,6 +70,20 @@ describe("prepareImportFromCsvText", () => {
       expect(duplicate.issues.some((issue) => issue.code === "HEADERS_DUPLICATE")).toBe(
         true,
       );
+    }
+
+    const padded = pair(
+      ` order_id,order_date,customer_email,currency,gross_amount,discount,net_amount,status\n${validOrderRow}\n`,
+      `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
+    );
+    expect(padded.ok).toBe(false);
+    if (!padded.ok) {
+      expect(
+        padded.issues.some((issue) => issue.code === "HEADERS_MISSING_COLUMNS"),
+      ).toBe(true);
+      expect(
+        padded.issues.some((issue) => issue.code === "HEADERS_UNEXPECTED"),
+      ).toBe(true);
     }
   });
 
@@ -103,11 +117,29 @@ describe("prepareImportFromCsvText", () => {
       expect(fieldCount?.row).toBe(2);
     }
 
-    const quotes = pair(
+    const quotesFirstDataRow = pair(
       `${ORDER_HEADER}\n"ORD-1,2025-04-13 00:00:00,a@example.com,USD,10.00,0.00,10.00,completed\n`,
       `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
     );
-    expect(quotes.ok).toBe(false);
+    expect(quotesFirstDataRow.ok).toBe(false);
+    if (!quotesFirstDataRow.ok) {
+      const malformed = quotesFirstDataRow.issues.find(
+        (issue) => issue.code === "MALFORMED_QUOTES",
+      );
+      expect(malformed?.row).toBe(2);
+    }
+
+    const quotesSecondDataRow = pair(
+      `${ORDER_HEADER}\n${validOrderRow}\n"ORD-2,2025-04-13 00:00:00,a@example.com,USD,10.00,0.00,10.00,completed\n`,
+      `${PAYMENT_HEADER}\n${validPaymentRow}\n`,
+    );
+    expect(quotesSecondDataRow.ok).toBe(false);
+    if (!quotesSecondDataRow.ok) {
+      const malformed = quotesSecondDataRow.issues.find(
+        (issue) => issue.code === "MALFORMED_QUOTES",
+      );
+      expect(malformed?.row).toBe(3);
+    }
   });
 
   it("ignores blank lines and accepts a UTF-8 BOM", () => {

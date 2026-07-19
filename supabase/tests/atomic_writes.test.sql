@@ -1,7 +1,7 @@
 SET search_path TO public, extensions, tests;
 
 BEGIN;
-SELECT plan(28);
+SELECT plan(39);
 
 SELECT tests.create_user(
   '11111111-1111-1111-1111-111111111111',
@@ -16,14 +16,19 @@ SELECT lives_ok(
       '10000000-0000-4000-8000-000000000001',
       'orders.csv',
       'payments.csv',
-      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
       jsonb_build_array(tests.sample_payment(2)),
       jsonb_build_array(
         jsonb_build_object(
-          'code', 'WARN',
+          'code', 'MISSING_ORDER_DISCOUNT',
           'severity', 'low',
-          'message', 'warning',
-          'sort_key', 'w1',
+          'message', 'discount is missing',
+          'sort_key', 'orders:000002:MISSING_ORDER_DISCOUNT',
           'order_record_source_rows', jsonb_build_array(2)
         )
       )
@@ -306,10 +311,285 @@ SELECT throws_ok(
   'orders over 5000 rows are rejected'
 );
 
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000017',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', 'not-money',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'order original_discount is invalid',
+  'malformed non-empty discount with null minor is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000018',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_order_id', '   ',
+          'normalized_order_id', ''
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'order original_order_id is required',
+  'blank order id is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000019',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(
+        (tests.sample_payment(2) || jsonb_build_object(
+          'original_payment_id', '',
+          'normalized_payment_id', ''
+        ))
+      ),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'payment original_payment_id is required',
+  'blank payment id is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000020',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(
+        (tests.sample_payment(2) || jsonb_build_object(
+          'original_order_reference', ' ',
+          'normalized_order_reference', ''
+        ))
+      ),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'payment original_order_reference is required',
+  'blank payment order reference is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000021',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(tests.sample_payment(2)),
+      jsonb_build_array(
+        jsonb_build_object(
+          'code', 'ARBITRARY',
+          'severity', 'low',
+          'message', 'nope',
+          'sort_key', 'orders:000002:ARBITRARY',
+          'order_record_source_rows', jsonb_build_array(2)
+        )
+      )
+    )
+  $$,
+  'P0001',
+  'unsupported import warning code',
+  'arbitrary warning codes are rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000022',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      jsonb_build_array(
+        jsonb_build_object(
+          'code', 'MISSING_ORDER_DISCOUNT',
+          'severity', 'high',
+          'message', 'discount is missing',
+          'sort_key', 'orders:000002:MISSING_ORDER_DISCOUNT',
+          'order_record_source_rows', jsonb_build_array(2)
+        )
+      )
+    )
+  $$,
+  'P0001',
+  'import warning severity must be low',
+  'arbitrary warning severities are rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000023',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(tests.sample_payment(2)),
+      jsonb_build_array(
+        jsonb_build_object(
+          'code', 'MISSING_ORDER_DISCOUNT',
+          'severity', 'low',
+          'message', 'discount is missing',
+          'sort_key', 'orders:000002:MISSING_ORDER_DISCOUNT',
+          'order_record_source_rows', jsonb_build_array(2)
+        )
+      )
+    )
+  $$,
+  'P0001',
+  'import warnings do not match the canonical set',
+  'warning for a condition that is not present is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000024',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'import warnings do not match the canonical set',
+  'omitting a required warning is rejected'
+);
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000025',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      jsonb_build_array(
+        jsonb_build_object(
+          'code', 'MISSING_ORDER_DISCOUNT',
+          'severity', 'low',
+          'message', 'discount is missing',
+          'sort_key', 'orders:000002:MISSING_ORDER_DISCOUNT',
+          'payment_record_source_rows', jsonb_build_array(2)
+        )
+      )
+    )
+  $$,
+  'P0001',
+  'import warning lineage is invalid',
+  'cross-source warning lineage is rejected'
+);
+
+SELECT lives_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000026',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_order_id', 'ord-2',
+          'normalized_order_id', 'ORD-2',
+          'original_customer_email', 'not-an-email',
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(
+        (tests.sample_payment(2) || jsonb_build_object(
+          'original_order_reference', 'ORD-2',
+          'normalized_order_reference', 'ORD-2',
+          'original_transaction_date', '',
+          'processed_at', NULL
+        ))
+      ),
+      jsonb_build_array(
+        jsonb_build_object(
+          'code', 'IDENTIFIER_NORMALIZED',
+          'severity', 'low',
+          'message', 'order_id normalized from "ord-2" to "ORD-2"',
+          'sort_key', 'orders:000002:IDENTIFIER_NORMALIZED:order_id',
+          'order_record_source_rows', jsonb_build_array(2)
+        ),
+        jsonb_build_object(
+          'code', 'MISSING_OR_INVALID_EMAIL',
+          'severity', 'low',
+          'message', 'customer_email is missing or invalid',
+          'sort_key', 'orders:000002:MISSING_OR_INVALID_EMAIL',
+          'order_record_source_rows', jsonb_build_array(2)
+        ),
+        jsonb_build_object(
+          'code', 'MISSING_ORDER_DISCOUNT',
+          'severity', 'low',
+          'message', 'discount is missing',
+          'sort_key', 'orders:000002:MISSING_ORDER_DISCOUNT',
+          'order_record_source_rows', jsonb_build_array(2)
+        ),
+        jsonb_build_object(
+          'code', 'MISSING_PAYMENT_TIMESTAMP',
+          'severity', 'low',
+          'message', 'processed_at is missing',
+          'sort_key', 'payments:000002:MISSING_PAYMENT_TIMESTAMP',
+          'payment_record_source_rows', jsonb_build_array(2)
+        )
+      )
+    )
+  $$,
+  'documented valid warning set succeeds'
+);
+
+SELECT is(
+  (SELECT warning_count FROM public.import_batches WHERE idempotency_key = '10000000-0000-4000-8000-000000000026'),
+  4,
+  'canonical warning set stores the correct warning_count'
+);
+
 SELECT is(
   (SELECT COUNT(*)::integer FROM public.import_batches WHERE user_id = '11111111-1111-1111-1111-111111111111'),
-  1,
-  'failed import does not leave a batch row'
+  2,
+  'failed warning validation leaves no partial batch or findings'
 );
 
 SELECT is(

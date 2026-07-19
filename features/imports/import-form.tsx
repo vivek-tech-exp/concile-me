@@ -15,8 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   MAX_FILE_BYTES,
+  importResponseSchema,
   type ImportIssue,
-  type ImportResponse,
   type ImportWarning,
 } from "@/features/imports/contracts";
 import {
@@ -45,6 +45,7 @@ export function ImportForm() {
   const [success, setSuccess] = useState<{
     orderCount: number;
     paymentCount: number;
+    warningCount: number;
     warnings: ImportWarning[];
   } | null>(null);
   const [error, setError] = useState<{
@@ -93,8 +94,28 @@ export function ImportForm() {
           method: "POST",
           body,
         });
-        const payload = (await response.json()) as ImportResponse;
 
+        let raw: unknown;
+        try {
+          raw = await response.json();
+        } catch {
+          setError({
+            message: "Import response was invalid. Please retry.",
+            retryable: true,
+          });
+          return;
+        }
+
+        const parsed = importResponseSchema.safeParse(raw);
+        if (!parsed.success) {
+          setError({
+            message: "Import response was invalid. Please retry.",
+            retryable: true,
+          });
+          return;
+        }
+
+        const payload = parsed.data;
         if (!payload.ok) {
           setError({
             message: payload.error.message,
@@ -108,6 +129,7 @@ export function ImportForm() {
         setSuccess({
           orderCount: payload.orderCount,
           paymentCount: payload.paymentCount,
+          warningCount: payload.warningCount,
           warnings: payload.warnings,
         });
         setIdempotency((current) => onImportSucceeded(current, newIdempotencyKey));
@@ -212,8 +234,12 @@ export function ImportForm() {
           >
             <p>
               Imported {success.orderCount} orders and {success.paymentCount}{" "}
-              payments with {success.warnings.length} warning
-              {success.warnings.length === 1 ? "" : "s"}.
+              payments with {success.warningCount} warning
+              {success.warningCount === 1 ? "" : "s"}
+              {success.warningCount > success.warnings.length
+                ? ` (showing first ${success.warnings.length})`
+                : ""}
+              .
             </p>
             {success.warnings.length > 0 ? (
               <ul className="list-disc space-y-1 pl-5 text-muted-foreground">

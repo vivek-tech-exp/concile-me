@@ -163,8 +163,11 @@ LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 DECLARE
-  v_original_discount text;
+  v_original_order_id text;
+  v_normalized_order_id text;
+  v_raw_discount text;
   v_discount_minor bigint;
+  v_parsed_discount bigint;
   v_expected_ts timestamp without time zone;
   v_provided_ts timestamp without time zone;
 BEGIN
@@ -172,10 +175,18 @@ BEGIN
     RAISE EXCEPTION 'order payload must be an object';
   END IF;
 
-  IF upper(btrim(COALESCE(p_order ->> 'original_order_id', '')))
-    IS DISTINCT FROM (p_order ->> 'normalized_order_id')
-  THEN
+  v_original_order_id := COALESCE(p_order ->> 'original_order_id', '');
+  v_normalized_order_id := p_order ->> 'normalized_order_id';
+  IF btrim(v_original_order_id) = '' THEN
+    RAISE EXCEPTION 'order original_order_id is required';
+  END IF;
+
+  IF upper(btrim(v_original_order_id)) IS DISTINCT FROM v_normalized_order_id THEN
     RAISE EXCEPTION 'order normalized_order_id does not match original_order_id';
+  END IF;
+
+  IF btrim(COALESCE(v_normalized_order_id, '')) = '' THEN
+    RAISE EXCEPTION 'order normalized_order_id is required';
   END IF;
 
   IF lower(btrim(COALESCE(p_order ->> 'original_status', '')))
@@ -202,14 +213,20 @@ BEGIN
     RAISE EXCEPTION 'order net_amount_minor does not match original_net_amount';
   END IF;
 
-  v_original_discount := NULLIF(p_order ->> 'original_discount', '');
+  v_raw_discount := COALESCE(p_order ->> 'original_discount', '');
   v_discount_minor := NULLIF(p_order ->> 'discount_minor', '')::bigint;
-  IF v_original_discount IS NULL THEN
+  IF btrim(v_raw_discount) = '' THEN
     IF v_discount_minor IS NOT NULL THEN
       RAISE EXCEPTION 'order discount_minor must be null when original_discount is empty';
     END IF;
-  ELSIF public.parse_money_to_minor(v_original_discount) IS DISTINCT FROM v_discount_minor THEN
-    RAISE EXCEPTION 'order discount_minor does not match original_discount';
+  ELSE
+    v_parsed_discount := public.parse_money_to_minor(v_raw_discount);
+    IF v_parsed_discount IS NULL THEN
+      RAISE EXCEPTION 'order original_discount is invalid';
+    END IF;
+    IF v_parsed_discount IS DISTINCT FROM v_discount_minor THEN
+      RAISE EXCEPTION 'order discount_minor does not match original_discount';
+    END IF;
   END IF;
 
   v_expected_ts := public.parse_order_timestamp(p_order ->> 'original_order_date');
@@ -236,6 +253,10 @@ LANGUAGE plpgsql
 IMMUTABLE
 AS $$
 DECLARE
+  v_original_payment_id text;
+  v_normalized_payment_id text;
+  v_original_order_reference text;
+  v_normalized_order_reference text;
   v_original_ts text;
   v_expected_ts timestamp without time zone;
   v_provided_ts timestamp without time zone;
@@ -244,16 +265,34 @@ BEGIN
     RAISE EXCEPTION 'payment payload must be an object';
   END IF;
 
-  IF upper(btrim(COALESCE(p_payment ->> 'original_payment_id', '')))
-    IS DISTINCT FROM (p_payment ->> 'normalized_payment_id')
-  THEN
+  v_original_payment_id := COALESCE(p_payment ->> 'original_payment_id', '');
+  v_normalized_payment_id := p_payment ->> 'normalized_payment_id';
+  IF btrim(v_original_payment_id) = '' THEN
+    RAISE EXCEPTION 'payment original_payment_id is required';
+  END IF;
+
+  IF upper(btrim(v_original_payment_id)) IS DISTINCT FROM v_normalized_payment_id THEN
     RAISE EXCEPTION 'payment normalized_payment_id does not match original_payment_id';
   END IF;
 
-  IF upper(btrim(COALESCE(p_payment ->> 'original_order_reference', '')))
-    IS DISTINCT FROM (p_payment ->> 'normalized_order_reference')
+  IF btrim(COALESCE(v_normalized_payment_id, '')) = '' THEN
+    RAISE EXCEPTION 'payment normalized_payment_id is required';
+  END IF;
+
+  v_original_order_reference := COALESCE(p_payment ->> 'original_order_reference', '');
+  v_normalized_order_reference := p_payment ->> 'normalized_order_reference';
+  IF btrim(v_original_order_reference) = '' THEN
+    RAISE EXCEPTION 'payment original_order_reference is required';
+  END IF;
+
+  IF upper(btrim(v_original_order_reference))
+    IS DISTINCT FROM v_normalized_order_reference
   THEN
     RAISE EXCEPTION 'payment normalized_order_reference does not match original_order_reference';
+  END IF;
+
+  IF btrim(COALESCE(v_normalized_order_reference, '')) = '' THEN
+    RAISE EXCEPTION 'payment normalized_order_reference is required';
   END IF;
 
   IF lower(btrim(COALESCE(p_payment ->> 'original_type', '')))
@@ -317,6 +356,326 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.import_warning_sort_key(
+  p_source text,
+  p_row integer,
+  p_code text
+)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT p_source || ':' || lpad(p_row::text, 6, '0') || ':' || p_code;
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_valid_import_email(p_email text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT btrim(COALESCE(p_email, ''))
+    ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$';
+$$;
+
+CREATE OR REPLACE FUNCTION public.derive_import_warnings(
+  p_orders jsonb,
+  p_payments jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_order jsonb;
+  v_payment jsonb;
+  v_row integer;
+  v_original text;
+  v_normalized text;
+  v_warnings jsonb := '[]'::jsonb;
+BEGIN
+  FOR v_order IN
+    SELECT value
+    FROM jsonb_array_elements(p_orders)
+  LOOP
+    v_row := (v_order ->> 'source_row_number')::integer;
+    v_original := v_order ->> 'original_order_id';
+    v_normalized := v_order ->> 'normalized_order_id';
+
+    IF v_original IS DISTINCT FROM v_normalized THEN
+      v_warnings := v_warnings || jsonb_build_array(
+        jsonb_build_object(
+          'code', 'IDENTIFIER_NORMALIZED',
+          'severity', 'low',
+          'message',
+            format(
+              'order_id normalized from "%s" to "%s"',
+              v_original,
+              v_normalized
+            ),
+          'sort_key',
+            public.import_warning_sort_key(
+              'orders',
+              v_row,
+              'IDENTIFIER_NORMALIZED:order_id'
+            ),
+          'order_record_source_rows', jsonb_build_array(v_row)
+        )
+      );
+    END IF;
+
+    IF NOT public.is_valid_import_email(v_order ->> 'original_customer_email') THEN
+      v_warnings := v_warnings || jsonb_build_array(
+        jsonb_build_object(
+          'code', 'MISSING_OR_INVALID_EMAIL',
+          'severity', 'low',
+          'message', 'customer_email is missing or invalid',
+          'sort_key',
+            public.import_warning_sort_key(
+              'orders',
+              v_row,
+              'MISSING_OR_INVALID_EMAIL'
+            ),
+          'order_record_source_rows', jsonb_build_array(v_row)
+        )
+      );
+    END IF;
+
+    IF btrim(COALESCE(v_order ->> 'original_discount', '')) = '' THEN
+      v_warnings := v_warnings || jsonb_build_array(
+        jsonb_build_object(
+          'code', 'MISSING_ORDER_DISCOUNT',
+          'severity', 'low',
+          'message', 'discount is missing',
+          'sort_key',
+            public.import_warning_sort_key(
+              'orders',
+              v_row,
+              'MISSING_ORDER_DISCOUNT'
+            ),
+          'order_record_source_rows', jsonb_build_array(v_row)
+        )
+      );
+    END IF;
+  END LOOP;
+
+  FOR v_payment IN
+    SELECT value
+    FROM jsonb_array_elements(p_payments)
+  LOOP
+    v_row := (v_payment ->> 'source_row_number')::integer;
+    v_original := v_payment ->> 'original_payment_id';
+    v_normalized := v_payment ->> 'normalized_payment_id';
+
+    IF v_original IS DISTINCT FROM v_normalized THEN
+      v_warnings := v_warnings || jsonb_build_array(
+        jsonb_build_object(
+          'code', 'IDENTIFIER_NORMALIZED',
+          'severity', 'low',
+          'message',
+            format(
+              'transaction_ref normalized from "%s" to "%s"',
+              v_original,
+              v_normalized
+            ),
+          'sort_key',
+            public.import_warning_sort_key(
+              'payments',
+              v_row,
+              'IDENTIFIER_NORMALIZED:transaction_ref'
+            ),
+          'payment_record_source_rows', jsonb_build_array(v_row)
+        )
+      );
+    END IF;
+
+    v_original := v_payment ->> 'original_order_reference';
+    v_normalized := v_payment ->> 'normalized_order_reference';
+
+    IF v_original IS DISTINCT FROM v_normalized THEN
+      v_warnings := v_warnings || jsonb_build_array(
+        jsonb_build_object(
+          'code', 'IDENTIFIER_NORMALIZED',
+          'severity', 'low',
+          'message',
+            format(
+              'order_reference normalized from "%s" to "%s"',
+              v_original,
+              v_normalized
+            ),
+          'sort_key',
+            public.import_warning_sort_key(
+              'payments',
+              v_row,
+              'IDENTIFIER_NORMALIZED:order_reference'
+            ),
+          'payment_record_source_rows', jsonb_build_array(v_row)
+        )
+      );
+    END IF;
+
+    IF btrim(COALESCE(v_payment ->> 'original_transaction_date', '')) = '' THEN
+      v_warnings := v_warnings || jsonb_build_array(
+        jsonb_build_object(
+          'code', 'MISSING_PAYMENT_TIMESTAMP',
+          'severity', 'low',
+          'message', 'processed_at is missing',
+          'sort_key',
+            public.import_warning_sort_key(
+              'payments',
+              v_row,
+              'MISSING_PAYMENT_TIMESTAMP'
+            ),
+          'payment_record_source_rows', jsonb_build_array(v_row)
+        )
+      );
+    END IF;
+  END LOOP;
+
+  RETURN (
+    SELECT COALESCE(jsonb_agg(elem.value ORDER BY elem.value ->> 'sort_key'), '[]'::jsonb)
+    FROM jsonb_array_elements(v_warnings) AS elem(value)
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.assert_provided_import_warnings(
+  p_provided jsonb,
+  p_expected jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_warning jsonb;
+  v_code text;
+  v_order_rows jsonb;
+  v_payment_rows jsonb;
+  v_lineage_row integer;
+  v_canonical jsonb := '[]'::jsonb;
+  v_canonical_warning jsonb;
+BEGIN
+  IF p_provided IS NULL OR jsonb_typeof(p_provided) <> 'array' THEN
+    RAISE EXCEPTION 'warnings must be a JSON array';
+  END IF;
+
+  FOR v_warning IN
+    SELECT value
+    FROM jsonb_array_elements(p_provided)
+  LOOP
+    IF jsonb_typeof(v_warning) <> 'object' THEN
+      RAISE EXCEPTION 'import warning must be an object';
+    END IF;
+
+    v_code := v_warning ->> 'code';
+    IF v_code IS NULL OR v_code NOT IN (
+      'MISSING_OR_INVALID_EMAIL',
+      'MISSING_ORDER_DISCOUNT',
+      'MISSING_PAYMENT_TIMESTAMP',
+      'IDENTIFIER_NORMALIZED'
+    ) THEN
+      RAISE EXCEPTION 'unsupported import warning code';
+    END IF;
+
+    IF (v_warning ->> 'severity') IS DISTINCT FROM 'low' THEN
+      RAISE EXCEPTION 'import warning severity must be low';
+    END IF;
+
+    IF btrim(COALESCE(v_warning ->> 'message', '')) = '' THEN
+      RAISE EXCEPTION 'import warning message is required';
+    END IF;
+
+    IF btrim(COALESCE(v_warning ->> 'sort_key', '')) = '' THEN
+      RAISE EXCEPTION 'import warning sort_key is required';
+    END IF;
+
+    IF v_warning ? 'currency'
+      OR v_warning ? 'financial_impact_minor'
+    THEN
+      RAISE EXCEPTION 'import warnings must not include financial impact';
+    END IF;
+
+    v_order_rows := CASE
+      WHEN v_warning ? 'order_record_source_rows' THEN v_warning -> 'order_record_source_rows'
+      ELSE NULL
+    END;
+    v_payment_rows := CASE
+      WHEN v_warning ? 'payment_record_source_rows' THEN v_warning -> 'payment_record_source_rows'
+      ELSE NULL
+    END;
+
+    IF (v_order_rows IS NULL) = (v_payment_rows IS NULL) THEN
+      RAISE EXCEPTION 'import warning lineage is invalid';
+    END IF;
+
+    IF v_order_rows IS NOT NULL THEN
+      IF jsonb_typeof(v_order_rows) <> 'array'
+        OR jsonb_array_length(v_order_rows) <> 1
+        OR v_code = 'MISSING_PAYMENT_TIMESTAMP'
+      THEN
+        RAISE EXCEPTION 'import warning lineage is invalid';
+      END IF;
+
+      BEGIN
+        v_lineage_row := (v_order_rows ->> 0)::integer;
+      EXCEPTION
+        WHEN OTHERS THEN
+          RAISE EXCEPTION 'import warning lineage is invalid';
+      END;
+
+      IF v_lineage_row IS NULL THEN
+        RAISE EXCEPTION 'import warning lineage is invalid';
+      END IF;
+
+      v_canonical_warning := jsonb_build_object(
+        'code', v_code,
+        'severity', 'low',
+        'message', v_warning ->> 'message',
+        'sort_key', v_warning ->> 'sort_key',
+        'order_record_source_rows', jsonb_build_array(v_lineage_row)
+      );
+    ELSE
+      IF jsonb_typeof(v_payment_rows) <> 'array'
+        OR jsonb_array_length(v_payment_rows) <> 1
+        OR v_code IN ('MISSING_OR_INVALID_EMAIL', 'MISSING_ORDER_DISCOUNT')
+      THEN
+        RAISE EXCEPTION 'import warning lineage is invalid';
+      END IF;
+
+      BEGIN
+        v_lineage_row := (v_payment_rows ->> 0)::integer;
+      EXCEPTION
+        WHEN OTHERS THEN
+          RAISE EXCEPTION 'import warning lineage is invalid';
+      END;
+
+      IF v_lineage_row IS NULL THEN
+        RAISE EXCEPTION 'import warning lineage is invalid';
+      END IF;
+
+      v_canonical_warning := jsonb_build_object(
+        'code', v_code,
+        'severity', 'low',
+        'message', v_warning ->> 'message',
+        'sort_key', v_warning ->> 'sort_key',
+        'payment_record_source_rows', jsonb_build_array(v_lineage_row)
+      );
+    END IF;
+
+    v_canonical := v_canonical || jsonb_build_array(v_canonical_warning);
+  END LOOP;
+
+  v_canonical := (
+    SELECT COALESCE(jsonb_agg(elem.value ORDER BY elem.value ->> 'sort_key'), '[]'::jsonb)
+    FROM jsonb_array_elements(v_canonical) AS elem(value)
+  );
+
+  IF v_canonical IS DISTINCT FROM p_expected THEN
+    RAISE EXCEPTION 'import warnings do not match the canonical set';
+  END IF;
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.is_iso_currency(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_safe_js_bigint(bigint) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_uuid_text(text) FROM PUBLIC;
@@ -326,6 +685,10 @@ REVOKE ALL ON FUNCTION public.parse_order_timestamp(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.parse_payment_timestamp(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.assert_import_order_payload(jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.assert_import_payment_payload(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.import_warning_sort_key(text, integer, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_valid_import_email(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.derive_import_warnings(jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.assert_provided_import_warnings(jsonb, jsonb) FROM PUBLIC;
 
 -- ---------------------------------------------------------------------------
 -- import_batches
@@ -765,6 +1128,7 @@ DECLARE
   v_row_number integer;
   v_order_ids_by_row jsonb := '{}'::jsonb;
   v_payment_ids_by_row jsonb := '{}'::jsonb;
+  v_expected_warnings jsonb;
 BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Authentication required'
@@ -822,6 +1186,23 @@ BEGIN
     RAISE EXCEPTION 'payments exceed the 5000 row limit';
   END IF;
 
+  FOR v_order IN
+    SELECT value
+    FROM jsonb_array_elements(p_orders)
+  LOOP
+    PERFORM public.assert_import_order_payload(v_order);
+  END LOOP;
+
+  FOR v_payment IN
+    SELECT value
+    FROM jsonb_array_elements(p_payments)
+  LOOP
+    PERFORM public.assert_import_payment_payload(v_payment);
+  END LOOP;
+
+  v_expected_warnings := public.derive_import_warnings(p_orders, p_payments);
+  PERFORM public.assert_provided_import_warnings(p_warnings, v_expected_warnings);
+
   INSERT INTO public.import_batches (
     user_id,
     status,
@@ -840,7 +1221,7 @@ BEGIN
     p_idempotency_key,
     jsonb_array_length(p_orders),
     jsonb_array_length(p_payments),
-    jsonb_array_length(p_warnings)
+    jsonb_array_length(v_expected_warnings)
   )
   RETURNING id INTO v_batch_id;
 
@@ -848,8 +1229,6 @@ BEGIN
     SELECT value
     FROM jsonb_array_elements(p_orders)
   LOOP
-    PERFORM public.assert_import_order_payload(v_order);
-
     INSERT INTO public.order_records (
       user_id,
       import_batch_id,
@@ -899,8 +1278,6 @@ BEGIN
     SELECT value
     FROM jsonb_array_elements(p_payments)
   LOOP
-    PERFORM public.assert_import_payment_payload(v_payment);
-
     INSERT INTO public.payment_records (
       user_id,
       import_batch_id,
@@ -955,7 +1332,7 @@ BEGIN
 
   FOR v_warning IN
     SELECT value
-    FROM jsonb_array_elements(p_warnings)
+    FROM jsonb_array_elements(v_expected_warnings)
   LOOP
     INSERT INTO public.findings (
       user_id,
@@ -977,8 +1354,8 @@ BEGIN
       v_warning ->> 'code',
       v_warning ->> 'severity',
       v_warning ->> 'message',
-      NULLIF(v_warning ->> 'currency', ''),
-      NULLIF(v_warning ->> 'financial_impact_minor', '')::bigint,
+      NULL,
+      NULL,
       v_warning ->> 'sort_key'
     )
     RETURNING id INTO v_finding_id;
