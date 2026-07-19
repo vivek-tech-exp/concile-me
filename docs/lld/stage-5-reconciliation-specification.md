@@ -88,11 +88,40 @@ Acceptance:
 - No reconciliation engine, schema, API, or UI code is added.
 - Documented baseline facts match an independent profiler run.
 
+## Verified reference observations (PR 1)
+
+Independent profiler run (`npm run profile:reference`) confirms:
+
+| Fact | Value |
+| --- | ---: |
+| Order rows | 185 |
+| Unique normalized order IDs | 184 |
+| Payment rows | 187 |
+| Unique transaction references | 187 |
+| Unique normalized payment order references | 183 |
+| Matched normalized keys | 180 |
+| Union normalized keys | 187 |
+| Duplicated order group (identical rows) | 1 (`ORD-1004`, source rows 117 and 170) |
+| Order keys without payment activity | 4 (`ORD-1201`–`ORD-1204`) |
+| Payment references without orders | 3 (`ORD-1301`–`ORD-1303`) |
+| Multiple settled charge groups | 2 (`ORD-1501`, `ORD-1502`) |
+| Currency conflicts | 2 (`ORD-1601`, `ORD-1602`) |
+| Material single-charge amount differences (`\|Δ\| ≥ 3`) | 3 (`ORD-1401`–`ORD-1403`) |
+| Sub-three-cent single-charge amount differences (`\|Δ\| ∈ {1,2}`) | 3 (`ORD-1901`–`ORD-1903`) |
+| Failed charge / pending charge | 1 / 1 (`TXN700183` / `TXN700184`) |
+| Cancelled + settled charge | 1 (`ORD-1701`) |
+| Refunded + partial refund | 1 (`ORD-1702`) |
+| Completed + full refund | 1 (`ORD-1703`) |
+| Order / payment settlement arithmetic failures | 0 / 0 |
+
+Full tables with original and normalized identifiers: `docs/reconciliation.md`.
+
 ## Status
 
 | Item | Status |
 | --- | --- |
-| PR 1 — Reference-data profile | IN PROGRESS |
-| Approval gate decisions | AWAITING APPROVAL |
+| PR 1 — Reference-data profile | COMPLETE (this PR) |
+| Approval gate decisions | **AWAITING APPROVAL** (required before PR 2) |
 | PR 2 — Business policy | NOT STARTED |
 | PR 3 — Expected reference results | NOT STARTED |
+

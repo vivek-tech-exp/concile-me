@@ -167,6 +167,12 @@ Use only:
 
 **Goal:** Define the complete deterministic business behavior before implementing the engine.
 
+Delivered as three sequential, specification-only PRs:
+
+1. Reference-data profile (facts only).
+2. Business policy (after explicit approval of financial decisions).
+3. Final expected reference findings and metrics.
+
 **Includes:**
 
 * Profile the reference datasets programmatically and record independently verified observations.
