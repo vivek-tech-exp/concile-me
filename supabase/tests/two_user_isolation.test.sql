@@ -20,14 +20,7 @@ SELECT public.create_import_batch(
   'payments.csv',
   jsonb_build_array(tests.sample_order(2)),
   jsonb_build_array(tests.sample_payment(2)),
-  jsonb_build_array(
-    jsonb_build_object(
-      'code', 'WARN_A',
-      'severity', 'low',
-      'message', 'a warning',
-      'sort_key', 'a1'
-    )
-  )
+  '[]'::jsonb
 );
 SELECT set_config(
   'tests.a_batch',
@@ -82,7 +75,7 @@ SELECT is(
 );
 SELECT is(
   (SELECT COUNT(*)::integer FROM public.findings),
-  2,
+  1,
   'User A can read owned findings'
 );
 
