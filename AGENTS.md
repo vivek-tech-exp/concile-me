@@ -150,6 +150,9 @@ A user must never access another user's imports, source rows, reconciliation res
 - Provide relevant loading, empty, success, error, and retry states for asynchronous flows.
 - Use semantic HTML, accessible labels, keyboard-operable controls, and visible focus states.
 - Keep financial calculations and authorization logic out of UI components.
+- Follow `DESIGN.md` for the UI clarity baseline.
+- Prefer shared tokens and `components/ui` primitives; do not invent page-local visual systems.
+- Use `Button` `size="sm"` or `xs` for dense chrome (headers, table actions); leave the default size for primary form actions.
 
 
 
