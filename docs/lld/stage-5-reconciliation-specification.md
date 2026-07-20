@@ -9,10 +9,10 @@ Stage 5 is delivered as three sequential, specification-only pull requests:
 | PR | Branch | Purpose |
 | --- | --- | --- |
 | 1 | `codex/stage-5-reference-profile` | Reproducible reference-data facts |
-| 2 | (later) | Business policy: matching, aggregation, findings, impact, metrics |
+| 2 | `codex/stage-5-business-policy` | Business policy: matching, aggregation, findings, impact, metrics |
 | 3 | (later) | Final expected reference findings and metrics |
 
-PR 1 establishes independently verified observations from `sample/orders.csv` and `sample/payments.csv`. It reports raw structural facts only. Business classification, severity assignment, and financial metrics are defined by the approval gate below and implemented in later PRs—not by the profiler.
+PR 1 records raw structural facts. PR 2 (this section onward under **Business policy**) turns the approved gate into implementable rules. PR 3 will publish independently calculated expected findings and metrics for the reference pair—without hardcoding those expectations into the engine.
 
 ## Exclusions (all Stage 5 PRs)
 
@@ -26,10 +26,10 @@ PR 1 establishes independently verified observations from `sample/orders.csv` an
 
 | Path | Role |
 | --- | --- |
-| `docs/lld/stage-5-reconciliation-specification.md` | This LLD (profile scope + approval gate) |
+| `docs/lld/stage-5-reconciliation-specification.md` | This LLD |
 | `scripts/profile-reference-data.mjs` | Deterministic reference dataset profiler |
 | `package.json` | `profile:reference` script |
-| `docs/reconciliation.md` | Independently verified reference observations |
+| `docs/reconciliation.md` | Observations + (PR 2) product-facing rules |
 | `PLAN.md` | Stage 5 status |
 
 ## Profiling rules (PR 1)
@@ -53,11 +53,11 @@ Stage 4 ingestion warnings remain **data-quality observations**, not business di
 - `MISSING_PAYMENT_TIMESTAMP`
 - `IDENTIFIER_NORMALIZED`
 
-They keep severity **low**. Reconciliation may emit additional data-quality findings (see #7).
+They keep severity **low**. They are import-time findings (`reconciliation_id IS NULL`). Reconciliation may emit additional findings during Stage 6; Stage 4 warnings are not re-derived by the engine.
 
-## Approval gate — financial and product decisions (before PR 2)
+## Approval gate — financial and product decisions
 
-These decisions are **final** for Stage 5 PR 2. They must not be re-inferred from profiler output.
+All ten decisions are **Approved**. Full text is retained below as the normative source for PR 2. Do not re-infer from profiler output.
 
 | # | Decision | Status |
 | --- | --- | --- |
@@ -72,139 +72,217 @@ These decisions are **final** for Stage 5 PR 2. They must not be re-inferred fro
 | 9 | Disputed value vs money at risk | **Approved** |
 | 10 | Group-level exposure | **Approved** |
 
-### 1. Monetary tolerance
+### Gate detail (normative)
 
-**v1 constant:** `AMOUNT_TOLERANCE_MINOR = 10` (ten stored minor units; ±0.10 inclusive in two-decimal currencies).
+**1. Monetary tolerance.** `AMOUNT_TOLERANCE_MINOR = 10`. Versioned domain constant—not environment-configurable in v1. Future configurability requires explicit engine input and persistence with each result.
 
-- Documented and versioned in the domain policy / LLD; **not** read from environment variables.
-- Identical inputs always yield identical results for a given policy version.
-- Future configurability requires the tolerance to be an explicit engine input **and** persisted with each reconciliation result. That is out of scope for v1.
+**2. Total orders.** Count of source order rows in the import (185 for the reference pair), including duplicates.
 
-### 2. Total orders
+**3. Reconciliation rate.** `reconciled_source_order_rows / total_source_order_rows`. A source order row is reconciled only when its normalized-key group is determinate, currencies agree, `|actual − expected| ≤ 10`, and there is no blocking DQ indeterminacy. Indeterminate groups contribute **zero** order rows to the numerator.
 
-**Total orders** = count of **source order rows** in the import batch (185 for the reference pair), including duplicate rows. Not the count of unique normalized order keys (184).
+**4. Status → expected net collected.** `completed` → order `net_amount_minor`; `cancelled` → `0`; `refunded` → `0`. Orphan payment groups → expected `0`.
 
-### 3. Reconciliation rate
+**5. Duplicate transaction references.** A normalized `transaction_ref` appearing more than once **anywhere** in the import is a duplicate transaction ID. Exclude every such event from aggregation; mark every group containing one **financially indeterminate**.
 
-```text
-reconciliation_rate = reconciled_source_order_rows / total_source_order_rows
-```
+**6. Currency conflicts.** Emit a conflict finding; report currency-side facts; no FX, no cross-currency impact, group not reconciled.
 
-An order **source row** is **reconciled** only when **all** of the following hold for its normalized-key group:
+**7. Exact duplicate source rows.** Emit DQ finding; mark group indeterminate; never silently deduplicate.
 
-1. The group is **determinate** (not indeterminate under #5 or #7).
-2. Order and payment currencies **agree** (no currency conflict under #6).
-3. Actual net collected versus expected net collected is within `AMOUNT_TOLERANCE_MINOR` (inclusive).
-4. The group has no blocking data-quality condition that marks it indeterminate.
+**8. Severity.** `high` = settled financial inconsistency or missing expected collection; `medium` = pending, failed, currency-conflicted, or otherwise indeterminate; `low` = non-financial DQ warnings.
 
-If a normalized-key group is **indeterminate**, **none** of its order source rows count in the numerator (including both rows of an exact duplicate pair).
+**9–10. Metrics / exposure.** Dashboard totals from canonical per-(normalized key, currency) group exposure. Finding impacts are explanatory only—never summed into dashboard metrics.
 
-Identifier-only matches without a valid financial state do **not** count as reconciled.
+---
 
-### 4. Status semantics — expected net collected
+## Business policy (PR 2)
 
-Allowed order statuses are those present after Stage 4 normalization: `completed`, `cancelled`, `refunded`. No invented lifecycle transitions.
+Product-facing summary: `docs/reconciliation.md`. This section is the implementable contract for Stage 6.
 
-| Normalized order status | Expected net collected |
+### Policy version
+
+| Constant | Value |
 | --- | --- |
-| `completed` | Order `net_amount_minor` |
-| `cancelled` | `0` |
-| `refunded` | `0` |
+| `POLICY_VERSION` | `stage-5-pr2-v1` |
+| `AMOUNT_TOLERANCE_MINOR` | `10` |
 
-**Actual net collected** (per normalized-key group, when determinate and single-currency):
+### Inputs
+
+One completed import batch’s order records and payment records after Stage 4 validation. The engine must not use wall-clock time, database return order, React, Supabase, HTTP, or an LLM.
+
+### Pipeline (deterministic order)
+
+1. Build the global set of **duplicate transaction IDs** (normalized `transaction_ref` with count > 1 across the whole import).
+2. Partition records into **normalized-key groups** (see matching).
+3. For each group, evaluate **determinacy**, **currency agreement**, **expected**, **actual**, and **findings**.
+4. Compute **per-group exposure** (reconciled contribution, disputed, money at risk).
+5. Aggregate **batch metrics** by currency (and rate from source order rows).
+6. Emit findings in **stable sort order**.
+
+### Matching key
+
+| Side | Original field | Normalized field | Rule |
+| --- | --- | --- | --- |
+| Order | `original_order_id` | `normalized_order_id` | Stage 4: trim + uppercase |
+| Payment | `original_order_reference` | `normalized_order_reference` | Stage 4: trim + uppercase |
+
+**Group key** = that normalized string. Union of all order keys and payment reference keys forms the set of groups. Empty keys cannot appear after Stage 4 validation.
+
+### Payment event classification
+
+| Normalized type | Normalized status | Role in `actual_net_collected` |
+| --- | --- | --- |
+| `charge` | `settled` | Include `amount_minor` (+) if transaction ID is not a duplicate |
+| `refund` | `settled` | Include `amount_minor` (−) if transaction ID is not a duplicate |
+| `charge` | `pending` | Exclude from actual; may emit `PENDING_CHARGE` |
+| `charge` | `failed` | Exclude from actual; may emit `FAILED_CHARGE` |
+| `refund` | `pending` / `failed` | Exclude from actual; emit corresponding finding if present |
+
+Fees (`fee_minor`) never enter `actual_net_collected`.
 
 ```text
 actual_net_collected =
-  sum(settled charge amounts)
-  − sum(settled refund amounts)
+  Σ settled non-duplicate charge amounts
+  − Σ settled non-duplicate refund amounts
 ```
 
-Exclude from that sum:
+When the group is **financially indeterminate** (#5 or #7 or order-key collision), `actual_net_collected` is **undefined** (do not invent a net).
 
-- Fees
-- Failed attempts
-- Pending attempts
-- All payment events whose normalized `transaction_ref` is a **duplicate transaction ID** anywhere in the import (#5)
+### Expected net collected
 
-**Orphan payment group** (payment order references with no matching order): expected net collected is `0`; actual is computed as above when determinate.
-
-### 5. Duplicate transaction references (global scope)
-
-A normalized `transaction_ref` that appears more than once **anywhere** in the import batch (across any order references) is a **duplicate transaction ID**.
-
-Consequences:
-
-- Every payment event carrying that ID is **excluded from aggregation**.
-- Every normalized-key group that contains at least one such event is **financially indeterminate**.
-- Do not produce a single reconciled net figure for an indeterminate group.
-
-### 6. Currency conflicts
-
-When order-side and payment-side currencies disagree on a normalized key:
-
-- Emit a **currency conflict** finding.
-- Report each currency-side fact separately.
-- Do **not** convert, pick a canonical currency, or compute a cross-currency impact.
-- The group is **not** reconciled (#3).
-- Dashboard monetary exposure for that group follows #9/#10 (no cross-currency impact calculation).
-
-### 7. Exact duplicate source rows
-
-When two or more order source rows share the same normalized key and are **byte-identical** (exact duplicate content):
-
-- Emit a reconciliation **data-quality** finding.
-- Mark that normalized-key group **indeterminate**.
-- **Never** silently deduplicate for matching or aggregation.
-
-### 8. Severity
-
-| Severity | Applies to |
+| Group shape | Expected |
 | --- | --- |
-| `high` | Known settled financial inconsistency, or missing expected collection |
-| `medium` | Pending, failed, currency-conflicted, or otherwise indeterminate groups |
-| `low` | Non-financial data-quality warnings (Stage 4 ingestion warnings and exact-duplicate-row findings) |
+| Exactly one order row; status `completed` | that row’s `net_amount_minor` |
+| Exactly one order row; status `cancelled` | `0` |
+| Exactly one order row; status `refunded` | `0` |
+| Two or more **exact-identical** order rows | undefined (indeterminate) |
+| Two or more **non-identical** order rows on the same key | undefined (indeterminate) |
+| No order rows (orphan payments only) | `0` |
 
-### 9. Disputed value vs money at risk
+When multiple identical order rows exist, do not pick one for expected; leave expected undefined until the DQ finding is resolved outside the engine.
 
-Counted **once per normalized key and currency** from canonical group exposure (#10)—never by summing finding impacts.
+### Determinacy
 
-| Metric | Definition |
+A group is **indeterminate** when any of:
+
+1. It contains a payment whose normalized `transaction_ref` is a global duplicate transaction ID.
+2. It has two or more order rows that are exact content duplicates (`EXACT_DUPLICATE_ORDER_ROWS`).
+3. It has two or more order rows that are **not** exact duplicates (`ORDER_KEY_COLLISION`).
+
+Otherwise the group is **determinate**.
+
+### Currency agreement
+
+Collect distinct normalized currencies from order rows and from payment rows in the group (payments still counted even if excluded from actual).
+
+- **Agree** when the set of currencies has size 1 (or the group has only one side and one currency).
+- **Conflict** when size > 1 → emit `CURRENCY_CONFLICT`; currencies do not agree; no cross-currency impact.
+
+### Reconciled source order row
+
+An order **source row** is reconciled iff:
+
+1. Its group is determinate.
+2. Currencies agree.
+3. `expected` and `actual` are both defined.
+4. `abs(actual − expected) ≤ AMOUNT_TOLERANCE_MINOR`.
+5. No blocking DQ indeterminacy on the group.
+
+If the group is indeterminate, **every** order source row in that group fails the reconciled predicate.
+
+### Finding catalog
+
+Each finding has: stable `code`, `category`, `severity`, message template, lineage, explanatory `financial_impact_minor` (nullable), and non-triggering notes.
+
+Finding impacts are **explanatory only**. Dashboard metrics use canonical group exposure only.
+
+#### Data-quality / determinacy
+
+| Code | Category | Severity | Detection | Explanatory impact | Non-triggering |
+| --- | --- | --- | --- | --- | --- |
+| `EXACT_DUPLICATE_ORDER_ROWS` | `data_quality` | `low` | ≥2 order rows same key with identical fingerprint of persisted source fields | `null` | Distinct content on same key → `ORDER_KEY_COLLISION` instead |
+| `ORDER_KEY_COLLISION` | `data_quality` | `medium` | ≥2 order rows same key, not all identical | `null` | Single order row; or all rows identical |
+| `DUPLICATE_TRANSACTION_REF` | `data_quality` | `medium` | Group contains ≥1 payment whose normalized payment ID is globally duplicated | `null` | Unique transaction refs only |
+
+#### Currency
+
+| Code | Category | Severity | Detection | Explanatory impact | Non-triggering |
+| --- | --- | --- | --- | --- | --- |
+| `CURRENCY_CONFLICT` | `business` | `medium` | Order-side and payment-side currency sets disagree (size > 1 across the group) | `null` (no cross-currency number) | Single shared currency; or only one side present |
+
+#### Payment state (informational; do not alone define actual)
+
+| Code | Category | Severity | Detection | Explanatory impact | Non-triggering |
+| --- | --- | --- | --- | --- | --- |
+| `PENDING_CHARGE` | `business` | `medium` | ≥1 `charge`+`pending` in group (non-duplicate txn id) | pending `amount_minor` (same payment currency) | No pending charges |
+| `FAILED_CHARGE` | `business` | `medium` | ≥1 `charge`+`failed` in group (non-duplicate txn id) | failed `amount_minor` | No failed charges |
+
+One finding per distinct pending/failed payment row (stable lineage to that payment). Multiple events → multiple findings.
+
+#### Financial state (determinate, currencies agree)
+
+| Code | Category | Severity | Detection | Explanatory impact | Non-triggering |
+| --- | --- | --- | --- | --- | --- |
+| `AMOUNT_MISMATCH` | `business` | `high` | `expected` and `actual` defined; `abs(actual − expected) > 10` | `abs(actual − expected)` | Difference ≤ 10; or expected/actual undefined; or currency conflict; or indeterminate |
+| `MISSING_PAYMENT` | `business` | `high` | Group has ≥1 order row, zero payment rows, and `expected` defined and `expected > 0` | `expected` | Orphan-only groups; cancelled/refunded with expected 0 and no payments (no missing collection); expected undefined |
+| `UNEXPECTED_PAYMENT` | `business` | `high` | Group has zero order rows and `actual` defined and `actual ≠ 0` (beyond tolerance vs expected 0) | `abs(actual)` | Orphan group with actual within 10 of 0; or indeterminate actual |
+| `ORDER_ARITHMETIC_MISMATCH` | `data_quality` | `low` | For an order row with non-null `discount_minor`: `gross − discount ≠ net`; or with null discount: `gross ≠ net` | `null` | Arithmetic holds |
+
+Notes:
+
+- `cancelled`/`refunded` with non-zero actual are covered by `AMOUNT_MISMATCH` (expected 0), not a separate code.
+- Multiple distinct settled charges are aggregated into `actual`; if the sum is out of tolerance, emit `AMOUNT_MISMATCH`. Do **not** emit a separate “duplicate charge” financial code when transaction IDs are unique.
+- `MISSING_PAYMENT` applies when there are no payment rows at all. A completed order with only failed/pending payments has `actual = 0` and should emit `AMOUNT_MISMATCH` (and pending/failed findings), not `MISSING_PAYMENT`.
+
+### Canonical group exposure (dashboard inputs)
+
+Evaluate once per `(normalized_key, currency)` when currencies agree and a single currency `C` is in use. If currency conflict or indeterminate such that expected/actual are undefined:
+
+| Metric contribution | Value |
 | --- | --- |
-| **Disputed value** | Full value requiring investigation for that group/currency (the investigated exposure amount for the group). |
-| **Money at risk** | `abs(actual_net_collected − expected_net_collected)` when both sides are defined in the **same** currency and the group is determinate enough to compute both. |
+| Reconciled value in `C` | `0` |
+| Money at risk in `C` | `0` |
+| Disputed value in `C` | `0` |
 
-Currency-conflicted groups: report currency-side facts; **return no cross-currency impact** for either metric.
+When the group is determinate, currencies agree on `C`, and expected + actual are defined:
 
-Orphan payment groups: expected = 0; money at risk = `abs(actual − 0)` when determinate and single-currency.
+| Condition | Reconciled value (`C`) | Money at risk (`C`) | Disputed value (`C`) |
+| --- | --- | --- | --- |
+| `abs(actual − expected) ≤ 10` | `expected` | `0` | `0` |
+| otherwise | `0` | `abs(actual − expected)` | `max(expected, actual)` |
 
-Finding `financial_impact_minor` values are **explanatory only**.
+Batch totals: sum group contributions **per currency**. Never sum finding explanatory impacts.
 
-### 10. Group-level exposure
+**Total payments** = count of payment source rows in the import (187 for the reference pair).
 
-- Dashboard metrics (reconciled value, disputed value, money at risk) are derived from **canonical per-(normalized key, currency) group exposure**.
-- Finding impacts are explanatory and must **never** be summed to produce dashboard totals.
-- Overlapping findings on the same group do not multiply exposure.
+**Reconciliation rate** = (count of reconciled order source rows) / (total order source rows). Report as a ratio in `[0, 1]` (UI may format as percent).
 
-### Canonical group model (summary)
+### Finding sort order
 
-```text
-expected_net_collected =
-  completed → order net_amount_minor
-  cancelled → 0
-  refunded  → 0
-  orphan payment group → 0
+Stable ascending by:
 
-actual_net_collected =
-  settled charges − settled refunds
-  (exclude fees, failed, pending, and duplicate transaction IDs)
+1. `sort_key` string: `{normalized_key}:{code}:{stable_tie_breaker}`
+2. Tie-breaker: minimum source row number among linked lineage rows (orders first, then payments), then finding code, then payment/order id string.
 
-reconciled order row ↔ group determinate ∧ currencies agree
-  ∧ |actual − expected| ≤ 10 ∧ no blocking DQ indeterminacy
+Engine output must sort findings explicitly; never rely on map iteration order.
 
-reconciliation_rate = reconciled_source_order_rows / total_source_order_rows
-```
+### False positives / non-goals
 
-## Verification (PR 1)
+- Do not treat Stage 4 email/discount/timestamp/identifier warnings as business discrepancies.
+- Do not convert currencies.
+- Do not fuzzy-match identifiers.
+- Do not use fees in net-collected comparisons.
+- Do not silently drop duplicate order rows.
+- Do not count the same group’s exposure more than once across findings.
+
+### PR 2 deliverables
+
+| Path | Role |
+| --- | --- |
+| `docs/lld/stage-5-reconciliation-specification.md` | Full implementable policy (this document) |
+| `docs/reconciliation.md` | Product-facing rules + retained PR 1 observations |
+| `PLAN.md` | Note PR 2 progress |
+
+### PR 2 verification
 
 ```bash
 npm run profile:reference
@@ -216,11 +294,10 @@ npm run build
 
 Acceptance:
 
-- Profiler results are independent of CSV row ordering.
-- Original and normalized identifiers are both visible in the output.
-- No reconciliation engine, schema, API, or UI code is added.
-- Documented baseline facts match an independent profiler run.
-- Profiler amount differences are neutral (no material/tolerance-band labels).
+- Every finding code has inputs, detection, severity, explanatory impact, and non-triggering cases.
+- Rate, totals, expected/actual, tolerance, duplicate scope, currency, and exposure rules are unambiguous.
+- No engine, schema, API, or UI code.
+- No hardcoded reference source IDs in policy logic (IDs may appear only in PR 1 observation tables).
 
 ## Verified reference observations (PR 1)
 
@@ -247,13 +324,13 @@ Independent profiler run (`npm run profile:reference`) confirms:
 | Completed + full refund | 1 (`ORD-1703`) |
 | Order / payment settlement arithmetic failures | 0 / 0 |
 
-Full tables with original and normalized identifiers: `docs/reconciliation.md`.
+Full observation tables: `docs/reconciliation.md`.
 
 ## Status
 
 | Item | Status |
 | --- | --- |
 | PR 1 — Reference-data profile | COMPLETE |
-| Approval gate decisions | **COMPLETE** — all ten decisions approved |
-| PR 2 — Business policy | NOT STARTED (unblocked for policy writing) |
+| Approval gate decisions | COMPLETE |
+| PR 2 — Business policy | COMPLETE (this PR) |
 | PR 3 — Expected reference results | NOT STARTED |
