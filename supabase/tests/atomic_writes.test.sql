@@ -1,7 +1,7 @@
 SET search_path TO public, extensions, tests;
 
 BEGIN;
-SELECT plan(39);
+SELECT plan(42);
 
 SELECT tests.create_user(
   '11111111-1111-1111-1111-111111111111',
@@ -401,7 +401,12 @@ SELECT throws_ok(
       '10000000-0000-4000-8000-000000000021',
       'orders.csv',
       'payments.csv',
-      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
       jsonb_build_array(tests.sample_payment(2)),
       jsonb_build_array(
         jsonb_build_object(
@@ -454,6 +459,36 @@ SELECT throws_ok(
       '10000000-0000-4000-8000-000000000023',
       'orders.csv',
       'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      jsonb_build_array(
+        jsonb_build_object(
+          'code', 'MISSING_OR_INVALID_EMAIL',
+          'severity', 'low',
+          'message', 'customer_email is missing or invalid',
+          'sort_key', 'orders:000002:MISSING_OR_INVALID_EMAIL',
+          'order_record_source_rows', jsonb_build_array(2)
+        )
+      )
+    )
+  $$,
+  'P0001',
+  'import warnings do not match the canonical set',
+  'warning for a condition that is not present is rejected'
+);
+
+
+SELECT throws_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000028',
+      'orders.csv',
+      'payments.csv',
       jsonb_build_array(tests.sample_order(2)),
       jsonb_build_array(tests.sample_payment(2)),
       jsonb_build_array(
@@ -468,8 +503,8 @@ SELECT throws_ok(
     )
   $$,
   'P0001',
-  'import warnings do not match the canonical set',
-  'warning for a condition that is not present is rejected'
+  'import warning count exceeds the canonical set',
+  'warning payloads above the canonical count are rejected before iteration'
 );
 
 SELECT throws_ok(
@@ -586,9 +621,93 @@ SELECT is(
   'canonical warning set stores the correct warning_count'
 );
 
+
+SELECT lives_ok(
+  $$
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000027',
+      'orders.csv',
+      'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_order_id', E'\tord-27\t',
+          'normalized_order_id', 'ORD-27',
+          'original_customer_email', E'\tbuyer@example.com\t',
+          'original_status', E'\tcompleted\t',
+          'normalized_status', 'completed',
+          'original_currency', E'\tUSD\t',
+          'normalized_currency', 'USD',
+          'original_discount', E'\t',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(
+        (tests.sample_payment(2) || jsonb_build_object(
+          'original_payment_id', E'\tpay-27\t',
+          'normalized_payment_id', 'PAY-27',
+          'original_order_reference', E'\tord-27\t',
+          'normalized_order_reference', 'ORD-27',
+          'original_type', E'\tcharge\t',
+          'normalized_type', 'charge',
+          'original_status', E'\tsettled\t',
+          'normalized_status', 'settled',
+          'original_currency', E'\tUSD\t',
+          'normalized_currency', 'USD',
+          'original_transaction_date', E'\t',
+          'processed_at', NULL
+        ))
+      ),
+      jsonb_build_array(
+        jsonb_build_object(
+          'code', 'IDENTIFIER_NORMALIZED',
+          'severity', 'low',
+          'message', E'order_id normalized from "\tord-27\t" to "ORD-27"',
+          'sort_key', 'orders:000002:IDENTIFIER_NORMALIZED:order_id',
+          'order_record_source_rows', jsonb_build_array(2)
+        ),
+        jsonb_build_object(
+          'code', 'MISSING_ORDER_DISCOUNT',
+          'severity', 'low',
+          'message', 'discount is missing',
+          'sort_key', 'orders:000002:MISSING_ORDER_DISCOUNT',
+          'order_record_source_rows', jsonb_build_array(2)
+        ),
+        jsonb_build_object(
+          'code', 'IDENTIFIER_NORMALIZED',
+          'severity', 'low',
+          'message', E'order_reference normalized from "\tord-27\t" to "ORD-27"',
+          'sort_key', 'payments:000002:IDENTIFIER_NORMALIZED:order_reference',
+          'payment_record_source_rows', jsonb_build_array(2)
+        ),
+        jsonb_build_object(
+          'code', 'IDENTIFIER_NORMALIZED',
+          'severity', 'low',
+          'message', E'transaction_ref normalized from "\tpay-27\t" to "PAY-27"',
+          'sort_key', 'payments:000002:IDENTIFIER_NORMALIZED:transaction_ref',
+          'payment_record_source_rows', jsonb_build_array(2)
+        ),
+        jsonb_build_object(
+          'code', 'MISSING_PAYMENT_TIMESTAMP',
+          'severity', 'low',
+          'message', 'processed_at is missing',
+          'sort_key', 'payments:000002:MISSING_PAYMENT_TIMESTAMP',
+          'payment_record_source_rows', jsonb_build_array(2)
+        )
+      )
+    )
+  $$,
+  'RPC trimming matches TypeScript for tab-padded import fields'
+);
+
+SELECT is(
+  (SELECT warning_count FROM public.import_batches WHERE idempotency_key = '10000000-0000-4000-8000-000000000027'),
+  5,
+  'tab-padded blank and normalized fields derive the canonical warnings'
+);
+
 SELECT is(
   (SELECT COUNT(*)::integer FROM public.import_batches WHERE user_id = '11111111-1111-1111-1111-111111111111'),
-  2,
+  3,
   'failed warning validation leaves no partial batch or findings'
 );
 
