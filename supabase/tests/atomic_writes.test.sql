@@ -476,7 +476,7 @@ SELECT throws_ok(
         )
       )
     )
-  $,
+  $$,
   'P0001',
   'import warnings do not match the canonical set',
   'warning for a condition that is not present is rejected'
@@ -484,7 +484,7 @@ SELECT throws_ok(
 
 
 SELECT throws_ok(
-  $
+  $$
     SELECT public.create_import_batch(
       '10000000-0000-4000-8000-000000000028',
       'orders.csv',
@@ -501,14 +501,14 @@ SELECT throws_ok(
         )
       )
     )
-  $,
+  $$,
   'P0001',
   'import warning count exceeds the canonical set',
   'warning payloads above the canonical count are rejected before iteration'
 );
 
 SELECT throws_ok(
-  $
+  $$
     SELECT public.create_import_batch(
       '10000000-0000-4000-8000-000000000024',
       'orders.csv',
@@ -623,7 +623,7 @@ SELECT is(
 
 
 SELECT lives_ok(
-  $
+  $$
     SELECT public.create_import_batch(
       '10000000-0000-4000-8000-000000000027',
       'orders.csv',
@@ -695,7 +695,7 @@ SELECT lives_ok(
         )
       )
     )
-  $,
+  $$,
   'RPC trimming matches TypeScript for tab-padded import fields'
 );
 

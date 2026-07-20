@@ -34,7 +34,7 @@ CREATE OR REPLACE FUNCTION public.trim_import_whitespace(p_value text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
-AS $
+AS $$
   -- Match ECMAScript String.prototype.trim(), which the TypeScript importer uses.
   SELECT btrim(
     COALESCE(p_value, ''),
@@ -45,7 +45,7 @@ AS $
       || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287)
       || chr(12288) || chr(65279)
   );
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION public.is_import_filename(p_value text)
 RETURNS boolean
