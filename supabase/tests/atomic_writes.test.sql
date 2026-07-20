@@ -1,7 +1,7 @@
 SET search_path TO public, extensions, tests;
 
 BEGIN;
-SELECT plan(41);
+SELECT plan(42);
 
 SELECT tests.create_user(
   '11111111-1111-1111-1111-111111111111',
@@ -401,7 +401,12 @@ SELECT throws_ok(
       '10000000-0000-4000-8000-000000000021',
       'orders.csv',
       'payments.csv',
-      jsonb_build_array(tests.sample_order(2)),
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
       jsonb_build_array(tests.sample_payment(2)),
       jsonb_build_array(
         jsonb_build_object(
@@ -454,6 +459,36 @@ SELECT throws_ok(
       '10000000-0000-4000-8000-000000000023',
       'orders.csv',
       'payments.csv',
+      jsonb_build_array(
+        (tests.sample_order(2) || jsonb_build_object(
+          'original_discount', '',
+          'discount_minor', NULL
+        ))
+      ),
+      jsonb_build_array(tests.sample_payment(2)),
+      jsonb_build_array(
+        jsonb_build_object(
+          'code', 'MISSING_OR_INVALID_EMAIL',
+          'severity', 'low',
+          'message', 'customer_email is missing or invalid',
+          'sort_key', 'orders:000002:MISSING_OR_INVALID_EMAIL',
+          'order_record_source_rows', jsonb_build_array(2)
+        )
+      )
+    )
+  $,
+  'P0001',
+  'import warnings do not match the canonical set',
+  'warning for a condition that is not present is rejected'
+);
+
+
+SELECT throws_ok(
+  $
+    SELECT public.create_import_batch(
+      '10000000-0000-4000-8000-000000000028',
+      'orders.csv',
+      'payments.csv',
       jsonb_build_array(tests.sample_order(2)),
       jsonb_build_array(tests.sample_payment(2)),
       jsonb_build_array(
@@ -466,14 +501,14 @@ SELECT throws_ok(
         )
       )
     )
-  $$,
+  $,
   'P0001',
-  'import warnings do not match the canonical set',
-  'warning for a condition that is not present is rejected'
+  'import warning count exceeds the canonical set',
+  'warning payloads above the canonical count are rejected before iteration'
 );
 
 SELECT throws_ok(
-  $$
+  $
     SELECT public.create_import_batch(
       '10000000-0000-4000-8000-000000000024',
       'orders.csv',
