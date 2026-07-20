@@ -12,6 +12,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
+    "profile:reference": "node scripts/profile-reference-data.mjs",
     "db:reset": "supabase db reset --yes && docker exec -i supabase_db_concile-me psql -U postgres -v ON_ERROR_STOP=1 < supabase/schema.sql && docker exec -i supabase_db_concile-me psql -U postgres -v ON_ERROR_STOP=1 < supabase/test_helpers.sql",
     "test:db": "npm run db:reset && supabase db test --local supabase/tests",
     "db:lint": "supabase db lint --local --schema public --fail-on error",

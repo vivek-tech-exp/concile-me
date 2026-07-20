@@ -51,7 +51,7 @@ Use only:
 | 2     | Supabase and authentication             | COMPLETE    |
 | 3     | Database model and user isolation       | COMPLETE    |
 | 4     | CSV ingestion                           | COMPLETE    |
-| 5     | Reconciliation specification            | NOT STARTED |
+| 5     | Reconciliation specification            | IN PROGRESS |
 | 6     | Reconciliation engine and persistence   | NOT STARTED |
 | 7     | Dashboard and discrepancy investigation | NOT STARTED |
 | 8     | LLM explanation                         | NOT STARTED |
@@ -167,6 +167,12 @@ Use only:
 **Depends on:** Stage 4.
 
 **Goal:** Define the complete deterministic business behavior before implementing the engine.
+
+Delivered as three sequential, specification-only PRs:
+
+1. Reference-data profile (facts only).
+2. Business policy (after explicit approval of financial decisions).
+3. Final expected reference findings and metrics.
 
 **Includes:**
 
