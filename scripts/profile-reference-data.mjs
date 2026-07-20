@@ -22,7 +22,6 @@ const PAYMENTS_PATH = join(ROOT, "sample", "payments.csv");
 
 const MONEY_PATTERN = /^(\d+)(?:\.(\d{1,2}))?$/;
 const MAX_SAFE_MINOR = 9007199254740991n;
-const SUB_THREE_CENT_MAX = 2; // |diff| in {1, 2} → sub-three-cent; |diff| >= 3 → material
 
 function normalizeIdentifier(original) {
   return original.trim().toUpperCase();
@@ -395,17 +394,12 @@ function profile(orders, payments) {
     if (absolute_difference_minor === 0) {
       continue;
     }
-    const band =
-      absolute_difference_minor <= SUB_THREE_CENT_MAX
-        ? "sub_three_cent"
-        : "material";
     amountDifferences.push({
       normalized_key: key,
       currency: order.normalized_currency,
       order_net_amount_minor: order.net_amount_minor,
       settled_charge_sum_minor: settledChargeSum,
       absolute_difference_minor,
-      band,
       order: {
         source_row_number: order.source_row_number,
         original_order_id: order.original_order_id,
@@ -421,6 +415,12 @@ function profile(orders, payments) {
         })),
     });
   }
+
+  amountDifferences.sort((a, b) => {
+    const keyCmp = a.normalized_key.localeCompare(b.normalized_key);
+    if (keyCmp !== 0) return keyCmp;
+    return a.absolute_difference_minor - b.absolute_difference_minor;
+  });
 
   const failedCharges = payments
     .filter(
@@ -557,16 +557,9 @@ function profile(orders, payments) {
       net_settled_minor: payment.net_settled_minor,
     }));
 
-  const materialDifferences = amountDifferences
-    .filter((row) => row.band === "material")
-    .sort((a, b) => a.normalized_key.localeCompare(b.normalized_key));
-  const subThreeCentDifferences = amountDifferences
-    .filter((row) => row.band === "sub_three_cent")
-    .sort((a, b) => a.normalized_key.localeCompare(b.normalized_key));
-
   return {
     generated_at_note:
-      "Facts only. No finding classification, severity, or risk formulas.",
+      "Facts only. No finding classification, severity, tolerance bands, or risk formulas.",
     sources: {
       orders_path: "sample/orders.csv",
       payments_path: "sample/payments.csv",
@@ -587,8 +580,7 @@ function profile(orders, payments) {
       ).length,
       multiple_settled_charge_groups: multipleSettledChargeGroups.length,
       currency_conflicts: currencyConflicts.length,
-      material_amount_differences: materialDifferences.length,
-      sub_three_cent_amount_differences: subThreeCentDifferences.length,
+      non_zero_amount_differences: amountDifferences.length,
       failed_charges: failedCharges.length,
       pending_charges: pendingCharges.length,
       cancelled_orders_with_settled_charge: cancelledWithSettledCharge.length,
@@ -613,10 +605,7 @@ function profile(orders, payments) {
     currency_conflicts: currencyConflicts.sort((a, b) =>
       a.normalized_key.localeCompare(b.normalized_key),
     ),
-    amount_differences: {
-      material: materialDifferences,
-      sub_three_cent: subThreeCentDifferences,
-    },
+    amount_differences: amountDifferences,
     failed_charges: failedCharges,
     pending_charges: pendingCharges,
     cancelled_orders_with_settled_charge: cancelledWithSettledCharge.sort(
@@ -653,8 +642,7 @@ function printSummary(profileResult) {
     `Payment references without orders: ${counts.payment_references_without_orders}`,
     `Multiple settled charge groups: ${counts.multiple_settled_charge_groups}`,
     `Currency conflicts: ${counts.currency_conflicts}`,
-    `Material amount differences: ${counts.material_amount_differences}`,
-    `Sub-three-cent amount differences: ${counts.sub_three_cent_amount_differences}`,
+    `Non-zero amount differences: ${counts.non_zero_amount_differences}`,
     `Failed charges: ${counts.failed_charges}`,
     `Pending charges: ${counts.pending_charges}`,
     `Cancelled orders with settled charge: ${counts.cancelled_orders_with_settled_charge}`,

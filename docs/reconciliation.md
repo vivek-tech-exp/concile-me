@@ -2,7 +2,7 @@
 
 This document records independently verified facts from the Stage 5 PR 1 profiler run against `sample/orders.csv` and `sample/payments.csv`.
 
-It does **not** define business discrepancy rules, tolerance, severity, disputed value, money at risk, or dashboard metrics. Those decisions require explicit approval in `docs/lld/stage-5-reconciliation-specification.md` before Stage 5 PR 2.
+It reports **raw structural facts only**. Business rules (tolerance, reconciled-row predicate, severity, disputed value, money at risk, and group exposure) are defined in `docs/lld/stage-5-reconciliation-specification.md` and are **not** applied by the profiler.
 
 Reproduce:
 
@@ -28,8 +28,7 @@ The profiler shuffles inputs and asserts identical sorted output. Money parsing 
 | Duplicated order groups | 1 (two identical rows) |
 | Groups with multiple settled charges | 2 |
 | Order/payment currency conflicts | 2 |
-| Material amount differences (`|Δ| ≥ 3` minor units, single settled charge) | 3 |
-| Sub-three-cent amount differences (`|Δ| ∈ {1, 2}`, single settled charge) | 3 |
+| Non-zero amount differences (single settled charge, same currency) | 6 |
 | Failed charges | 1 |
 | Pending charges | 1 |
 | Cancelled orders with a settled charge | 1 |
@@ -38,7 +37,7 @@ The profiler shuffles inputs and asserts identical sorted output. Money parsing 
 | Order arithmetic failures (`gross − discount ≠ net`) | 0 |
 | Payment settlement arithmetic failures (`amount − fee ≠ net_settled`) | 0 |
 
-Amount-difference bands above are **descriptive profile labels only**. Whether `|Δ| ≤ 2` is tolerated in reconciliation is an approval-gate decision for PR 2.
+Amount differences are listed neutrally with absolute `|Δ|` in minor units. Whether a difference is within tolerance is a policy decision (v1: 10 minor units inclusive)—see the LLD approval gate.
 
 ## Matching key used for profile joins
 
@@ -51,6 +50,8 @@ Normalized order `order_id` ↔ normalized payment `order_reference` (Stage 4 id
 | Normalized order ID | Source rows | Original order ID | Identical |
 | --- | --- | --- | --- |
 | `ORD-1004` | 117, 170 | `ORD-1004` / `ORD-1004` | Yes |
+
+Policy (approved): emit a data-quality finding and mark the normalized-key group indeterminate; never silently deduplicate.
 
 ### Order keys without payment activity
 
@@ -85,20 +86,15 @@ Normalized order `order_id` ↔ normalized payment `order_reference` (Stage 4 id
 
 No cross-currency amount comparison was performed.
 
-### Amount differences (single settled charge, same currency)
+### Non-zero amount differences (single settled charge, same currency)
 
-Material (`|Δ| ≥ 3`):
+Sorted by normalized key. Facts only—no material/tolerance classification.
 
 | Normalized key | Order net (minor) | Settled charge (minor) | \|Δ\| | Payment |
 | --- | ---: | ---: | ---: | --- |
 | `ORD-1401` | 9281 | 11781 | 2500 | `TXN700164` |
 | `ORD-1402` | 12762 | 10912 | 1850 | `TXN700165` |
 | `ORD-1403` | 19901 | 25901 | 6000 | `TXN700166` |
-
-Sub-three-cent (`|Δ| ∈ {1, 2}`):
-
-| Normalized key | Order net (minor) | Settled charge (minor) | \|Δ\| | Payment |
-| --- | ---: | ---: | ---: | --- |
 | `ORD-1901` | 13538 | 13539 | 1 | `TXN700180` |
 | `ORD-1902` | 6865 | 6863 | 2 | `TXN700181` |
 | `ORD-1903` | 15496 | 15497 | 1 | `TXN700182` |
@@ -118,15 +114,23 @@ Sub-three-cent (`|Δ| ∈ {1, 2}`):
 | Refunded order with partial refund | `ORD-1702` | Order net 24000; settled refund sum 12000 |
 | Completed order with full refund | `ORD-1703` | Order net 9900; settled refund sum 9900 |
 
+Expected net collected (approved policy): `completed` → order net; `cancelled` → 0; `refunded` → 0.
+
 ## Stage 4 data-quality warnings
 
-The reference CSV pair still produces Stage 4’s five ingestion warnings on import. They remain **data-quality observations**, not business discrepancies. Classification of reconciliation-generated warnings (for example exact duplicate source rows) is deferred to the approval gate / PR 2.
+The reference CSV pair still produces Stage 4’s five ingestion warnings on import. They remain **data-quality observations** with severity **low**, not business discrepancies.
 
-## Deferred to Stage 5 PR 2+
+## Approved policy (see LLD)
 
-- Finding codes, severity, and false-positive exclusions
-- Tolerance and whether sub-three-cent gaps are findings
-- Metric definitions (total orders, reconciliation rate, reconciled / disputed / at-risk value)
-- How overlapping group observations contribute to exposure without double counting
+The Stage 5 approval gate is **complete**. PR 2 must implement:
 
-See the approval gate table in `docs/lld/stage-5-reconciliation-specification.md`.
+- Tolerance `AMOUNT_TOLERANCE_MINOR = 10` (versioned constant, not env-configurable in v1)
+- Total orders = 185 source rows
+- Reconciliation rate = reconciled source order rows ÷ total source order rows
+- Status → expected net collected as above
+- Global duplicate `transaction_ref` → exclude events; mark affected groups indeterminate
+- Exact duplicate order rows → DQ finding + indeterminate group
+- Severity high / medium / low class model
+- Disputed value and money at risk from canonical group exposure (never sum of findings)
+
+Full definitions: `docs/lld/stage-5-reconciliation-specification.md`.
