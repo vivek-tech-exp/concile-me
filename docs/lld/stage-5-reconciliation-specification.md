@@ -332,5 +332,5 @@ Full observation tables: `docs/reconciliation.md`.
 | --- | --- |
 | PR 1 — Reference-data profile | COMPLETE |
 | Approval gate decisions | COMPLETE |
-| PR 2 — Business policy | IN PROGRESS |
+| PR 2 — Business policy | COMPLETE (this PR) |
 | PR 3 — Expected reference results | NOT STARTED |
