@@ -170,8 +170,8 @@ Use only:
 
 Delivered as three sequential, specification-only PRs:
 
-1. Reference-data profile (facts only).
-2. Business policy (after explicit approval of financial decisions).
+1. Reference-data profile (facts only) — **COMPLETE** (PR #10).
+2. Business policy (after explicit approval of financial decisions) — **IN PROGRESS**.
 3. Final expected reference findings and metrics.
 
 **Includes:**
