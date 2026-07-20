@@ -11,6 +11,7 @@ Project guidance is split deliberately:
 * `PRODUCT.md` defines product requirements.
 * `AGENTS.md` defines permanent engineering constraints.
 * `HLD.md` defines the stable architecture.
+* `DESIGN.md` defines the UI clarity baseline.
 * `PLAN.md` defines delivery order and stage outcomes.
 * The current stage LLD defines exact implementation details.
 
