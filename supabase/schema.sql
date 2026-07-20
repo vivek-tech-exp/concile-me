@@ -30,6 +30,23 @@ AS $$
   SELECT p_value ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
 $$;
 
+CREATE OR REPLACE FUNCTION public.trim_import_whitespace(p_value text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $
+  -- Match ECMAScript String.prototype.trim(), which the TypeScript importer uses.
+  SELECT btrim(
+    COALESCE(p_value, ''),
+    chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32)
+      || chr(160) || chr(5760)
+      || chr(8192) || chr(8193) || chr(8194) || chr(8195) || chr(8196)
+      || chr(8197) || chr(8198) || chr(8199) || chr(8200) || chr(8201)
+      || chr(8202) || chr(8232) || chr(8233) || chr(8239) || chr(8287)
+      || chr(12288) || chr(65279)
+  );
+$;
+
 CREATE OR REPLACE FUNCTION public.is_import_filename(p_value text)
 RETURNS boolean
 LANGUAGE sql
@@ -38,7 +55,7 @@ AS $$
   SELECT
     p_value IS NOT NULL
     AND length(p_value) BETWEEN 1 AND 255
-    AND p_value = btrim(p_value)
+    AND p_value = public.trim_import_whitespace(p_value)
     AND p_value !~ '[\\/\x00]';
 $$;
 
@@ -177,25 +194,25 @@ BEGIN
 
   v_original_order_id := COALESCE(p_order ->> 'original_order_id', '');
   v_normalized_order_id := p_order ->> 'normalized_order_id';
-  IF btrim(v_original_order_id) = '' THEN
+  IF public.trim_import_whitespace(v_original_order_id) = '' THEN
     RAISE EXCEPTION 'order original_order_id is required';
   END IF;
 
-  IF upper(btrim(v_original_order_id)) IS DISTINCT FROM v_normalized_order_id THEN
+  IF upper(public.trim_import_whitespace(v_original_order_id)) IS DISTINCT FROM v_normalized_order_id THEN
     RAISE EXCEPTION 'order normalized_order_id does not match original_order_id';
   END IF;
 
-  IF btrim(COALESCE(v_normalized_order_id, '')) = '' THEN
+  IF public.trim_import_whitespace(COALESCE(v_normalized_order_id, '')) = '' THEN
     RAISE EXCEPTION 'order normalized_order_id is required';
   END IF;
 
-  IF lower(btrim(COALESCE(p_order ->> 'original_status', '')))
+  IF lower(public.trim_import_whitespace(COALESCE(p_order ->> 'original_status', '')))
     IS DISTINCT FROM (p_order ->> 'normalized_status')
   THEN
     RAISE EXCEPTION 'order normalized_status does not match original_status';
   END IF;
 
-  IF upper(btrim(COALESCE(p_order ->> 'original_currency', '')))
+  IF upper(public.trim_import_whitespace(COALESCE(p_order ->> 'original_currency', '')))
     IS DISTINCT FROM (p_order ->> 'normalized_currency')
   THEN
     RAISE EXCEPTION 'order normalized_currency does not match original_currency';
@@ -215,7 +232,7 @@ BEGIN
 
   v_raw_discount := COALESCE(p_order ->> 'original_discount', '');
   v_discount_minor := NULLIF(p_order ->> 'discount_minor', '')::bigint;
-  IF btrim(v_raw_discount) = '' THEN
+  IF public.trim_import_whitespace(v_raw_discount) = '' THEN
     IF v_discount_minor IS NOT NULL THEN
       RAISE EXCEPTION 'order discount_minor must be null when original_discount is empty';
     END IF;
@@ -267,47 +284,47 @@ BEGIN
 
   v_original_payment_id := COALESCE(p_payment ->> 'original_payment_id', '');
   v_normalized_payment_id := p_payment ->> 'normalized_payment_id';
-  IF btrim(v_original_payment_id) = '' THEN
+  IF public.trim_import_whitespace(v_original_payment_id) = '' THEN
     RAISE EXCEPTION 'payment original_payment_id is required';
   END IF;
 
-  IF upper(btrim(v_original_payment_id)) IS DISTINCT FROM v_normalized_payment_id THEN
+  IF upper(public.trim_import_whitespace(v_original_payment_id)) IS DISTINCT FROM v_normalized_payment_id THEN
     RAISE EXCEPTION 'payment normalized_payment_id does not match original_payment_id';
   END IF;
 
-  IF btrim(COALESCE(v_normalized_payment_id, '')) = '' THEN
+  IF public.trim_import_whitespace(COALESCE(v_normalized_payment_id, '')) = '' THEN
     RAISE EXCEPTION 'payment normalized_payment_id is required';
   END IF;
 
   v_original_order_reference := COALESCE(p_payment ->> 'original_order_reference', '');
   v_normalized_order_reference := p_payment ->> 'normalized_order_reference';
-  IF btrim(v_original_order_reference) = '' THEN
+  IF public.trim_import_whitespace(v_original_order_reference) = '' THEN
     RAISE EXCEPTION 'payment original_order_reference is required';
   END IF;
 
-  IF upper(btrim(v_original_order_reference))
+  IF upper(public.trim_import_whitespace(v_original_order_reference))
     IS DISTINCT FROM v_normalized_order_reference
   THEN
     RAISE EXCEPTION 'payment normalized_order_reference does not match original_order_reference';
   END IF;
 
-  IF btrim(COALESCE(v_normalized_order_reference, '')) = '' THEN
+  IF public.trim_import_whitespace(COALESCE(v_normalized_order_reference, '')) = '' THEN
     RAISE EXCEPTION 'payment normalized_order_reference is required';
   END IF;
 
-  IF lower(btrim(COALESCE(p_payment ->> 'original_type', '')))
+  IF lower(public.trim_import_whitespace(COALESCE(p_payment ->> 'original_type', '')))
     IS DISTINCT FROM (p_payment ->> 'normalized_type')
   THEN
     RAISE EXCEPTION 'payment normalized_type does not match original_type';
   END IF;
 
-  IF lower(btrim(COALESCE(p_payment ->> 'original_status', '')))
+  IF lower(public.trim_import_whitespace(COALESCE(p_payment ->> 'original_status', '')))
     IS DISTINCT FROM (p_payment ->> 'normalized_status')
   THEN
     RAISE EXCEPTION 'payment normalized_status does not match original_status';
   END IF;
 
-  IF upper(btrim(COALESCE(p_payment ->> 'original_currency', '')))
+  IF upper(public.trim_import_whitespace(COALESCE(p_payment ->> 'original_currency', '')))
     IS DISTINCT FROM (p_payment ->> 'normalized_currency')
   THEN
     RAISE EXCEPTION 'payment normalized_currency does not match original_currency';
@@ -332,7 +349,7 @@ BEGIN
   END IF;
 
   v_original_ts := COALESCE(p_payment ->> 'original_transaction_date', '');
-  IF btrim(v_original_ts) = '' THEN
+  IF public.trim_import_whitespace(v_original_ts) = '' THEN
     IF NULLIF(p_payment ->> 'processed_at', '') IS NOT NULL THEN
       RAISE EXCEPTION 'payment processed_at must be null when original_transaction_date is empty';
     END IF;
@@ -373,7 +390,7 @@ RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
 AS $$
-  SELECT btrim(COALESCE(p_email, ''))
+  SELECT public.trim_import_whitespace(COALESCE(p_email, ''))
     ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$';
 $$;
 
@@ -440,7 +457,7 @@ BEGIN
       );
     END IF;
 
-    IF btrim(COALESCE(v_order ->> 'original_discount', '')) = '' THEN
+    IF public.trim_import_whitespace(COALESCE(v_order ->> 'original_discount', '')) = '' THEN
       v_warnings := v_warnings || jsonb_build_array(
         jsonb_build_object(
           'code', 'MISSING_ORDER_DISCOUNT',
@@ -513,7 +530,7 @@ BEGIN
       );
     END IF;
 
-    IF btrim(COALESCE(v_payment ->> 'original_transaction_date', '')) = '' THEN
+    IF public.trim_import_whitespace(COALESCE(v_payment ->> 'original_transaction_date', '')) = '' THEN
       v_warnings := v_warnings || jsonb_build_array(
         jsonb_build_object(
           'code', 'MISSING_PAYMENT_TIMESTAMP',
@@ -581,11 +598,11 @@ BEGIN
       RAISE EXCEPTION 'import warning severity must be low';
     END IF;
 
-    IF btrim(COALESCE(v_warning ->> 'message', '')) = '' THEN
+    IF public.trim_import_whitespace(COALESCE(v_warning ->> 'message', '')) = '' THEN
       RAISE EXCEPTION 'import warning message is required';
     END IF;
 
-    IF btrim(COALESCE(v_warning ->> 'sort_key', '')) = '' THEN
+    IF public.trim_import_whitespace(COALESCE(v_warning ->> 'sort_key', '')) = '' THEN
       RAISE EXCEPTION 'import warning sort_key is required';
     END IF;
 
@@ -679,6 +696,7 @@ $$;
 REVOKE ALL ON FUNCTION public.is_iso_currency(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_safe_js_bigint(bigint) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_uuid_text(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.trim_import_whitespace(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_import_filename(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.parse_money_to_minor(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.parse_order_timestamp(text) FROM PUBLIC;
